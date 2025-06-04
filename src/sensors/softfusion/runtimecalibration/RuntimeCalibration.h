@@ -307,7 +307,7 @@ private:
 		configuration.setSensor(sensorId, calibration);
 		configuration.save();
 
-		ledManager.blink(100);
+		ledManager.blink(100, CRGB::HTMLColorCode::Pink);
 	}
 
 	enum class CalibrationPrintFlags {

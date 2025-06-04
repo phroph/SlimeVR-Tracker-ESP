@@ -402,7 +402,7 @@ public:
 				gravity
 			);
 			if (gravity < -7.5f) {
-				ledManager.on();
+				ledManager.on(CRGB::HTMLColorCode::Yellow);
 				m_Logger.info("Flip front in 5 seconds to start calibration");
 				lastRawSample = eatSamplesReturnLast(5000);
 				gravity = static_cast<sensor_real_t>(

@@ -37,7 +37,7 @@ void BNO055Sensor::motionSetup() {
 #endif
 	{
 		m_Logger.fatal("Can't connect to BNO055 at address 0x%02x", addr);
-		ledManager.pattern(50, 50, 200);
+		ledManager.pattern(50, 50, 200, CRGB::HTMLColorCode::SaddleBrown);
 		return;
 	}
 

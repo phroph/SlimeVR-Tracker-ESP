@@ -28,9 +28,9 @@
 // Set parameters of IMU and board used
 #define IMU IMU_AUTO
 #define SECOND_IMU IMU_AUTO
-#define BOARD BOARD_SLIMEVR_V1_2
-#define IMU_ROTATION DEG_270
-#define SECOND_IMU_ROTATION DEG_270
+#define BOARD BOARD_CUSTOM
+#define IMU_ROTATION DEG_90
+#define SECOND_IMU_ROTATION DEG_90
 
 #define PRIMARY_IMU_OPTIONAL false
 #define SECONDARY_IMU_OPTIONAL true
@@ -40,8 +40,8 @@
 #define TRACKER_TYPE TrackerType::TRACKER_TYPE_SVR_ROTATION
 // Set I2C address here or directly in IMU_DESC_ENTRY for each IMU used
 // If not set, default address is used based on the IMU and Sensor ID
-// #define PRIMARY_IMU_ADDRESS_ONE 0x4a
-// #define SECONDARY_IMU_ADDRESS_TWO 0x4b
+#define PRIMARY_IMU_ADDRESS_ONE 0x6b
+#define SECONDARY_IMU_ADDRESS_TWO 0x6a
 
 // Axis mapping example
 /*
@@ -233,19 +233,19 @@ PIN_IMU_SDA, PRIMARY_IMU_OPTIONAL, BMI160_QMC_REMAP) \
 //   BAT_EXTERNAL for ADC pin,
 //   BAT_INTERNAL for internal - can detect only low battery,
 //   BAT_MCP3021 for external ADC connected over I2C
-#define BATTERY_MONITOR BAT_EXTERNAL
+#define BATTERY_MONITOR BAT_MAX17048
 
 // --- OVERRIDES FOR DEFAULT PINS
 
-// #define PIN_IMU_SDA 14
-// #define PIN_IMU_SCL 12
-// #define PIN_IMU_INT 16
-// #define PIN_IMU_INT_2 13
-// #define PIN_BATTERY_LEVEL 17
-// #define LED_PIN 2
-// #define LED_INVERTED true
-// #define BATTERY_SHILED_RESISTANCE 0
-// #define BATTERY_SHIELD_R1 10
-// #define BATTERY_SHIELD_R2 40.2
+// LSM6DSV16X
+// MAX17048
+//  #define PIN_BATTERY_THERM 8
+#define PIN_BATTERY_ALERT 12
+// SK6805 (NeoPixel)
+#define PIN_RGB 33
+#define PIN_RGB_POWER 21
+// IST8310
+#define PIN_MAG_DRDY 10
+#define PIN_MAG_RSTN 9
 
 // ------------------------------

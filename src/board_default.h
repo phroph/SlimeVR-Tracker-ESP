@@ -97,8 +97,12 @@ INT2(13)
 BATTERY(A0)
 
 #elif BOARD == BOARD_CUSTOM
-
-// Define pins by the examples above
+SDA(3)
+SCL(4)
+INT(255)
+INT2(255)
+BATTERY(255)
+LED(LED_OFF)
 
 #elif BOARD == BOARD_WROOM32
 
