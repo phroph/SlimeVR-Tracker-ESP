@@ -35,6 +35,14 @@ class MotionlessCalibrationStep : public CalibrationStep<SensorRawT> {
 	using CalibrationStep<SensorRawT>::sensorConfig;
 	using typename CalibrationStep<SensorRawT>::TickResult;
 
+
+// Primary template to check if a type has `MotionlessCalibrationData`
+template <typename T, typename = void>
+struct has_MotionlessCalibrationData : std::false_type {};
+
+template <typename T>
+struct has_MotionlessCalibrationData<T, std::void_t<typename T::MotionlessCalibrationData>> : std::true_type {};
+
 public:
 	MotionlessCalibrationStep(
 		SlimeVR::Configuration::RuntimeCalibrationSensorConfig& sensorConfig,
@@ -79,7 +87,7 @@ private:
 	static constexpr float motionlessCalibrationDelay = 5;
 
 	static constexpr bool HasMotionlessCalib
-		= requires(IMU& i) { typename IMU::MotionlessCalibrationData; };
+		= has_MotionlessCalibrationData<IMU>::value;
 	static constexpr size_t MotionlessCalibDataSize() {
 		if constexpr (HasMotionlessCalib) {
 			return sizeof(typename IMU::MotionlessCalibrationData);

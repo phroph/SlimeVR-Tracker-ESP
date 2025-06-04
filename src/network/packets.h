@@ -103,8 +103,8 @@ T swapEndianness(T value) {
 template <typename T>
 struct BigEndian {
 	BigEndian() = default;
-	explicit(false) BigEndian(T val) { value = swapEndianness(val); }
-	explicit(false) operator T() const { return swapEndianness(value); }
+	BigEndian(T val) { value = swapEndianness(val); }
+	operator T() const { return swapEndianness(value); }
 
 	T value{};
 };

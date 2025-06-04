@@ -37,6 +37,24 @@
 
 namespace SlimeVR::Sensors {
 
+template<typename...>
+using void_t = void;
+
+// Trait to detect .Uses32BitSensorData
+template <typename, typename = void>
+struct has_Uses32BitSensorData : std::false_type {};
+
+template <typename T>
+struct has_Uses32BitSensorData<T, void_t<decltype(std::declval<T&>().Uses32BitSensorData)>> : std::true_type {};
+
+// Trait to detect .getDirectTemp()
+template <typename, typename = void>
+struct has_getDirectTemp : std::false_type {};
+
+template <typename T>
+struct has_getDirectTemp<T, void_t<decltype(std::declval<T&>().getDirectTemp())>> : std::true_type {};
+
+
 template <
 	typename SensorType,
 	template <typename IMU, typename RawSensorT, typename RawVectorT>
@@ -50,11 +68,8 @@ class SoftFusionSensor : public Sensor {
 		}
 	}
 
-	static constexpr bool Uses32BitSensorData
-		= requires(SensorType& i) { i.Uses32BitSensorData; };
-
-	static constexpr bool DirectTempReadOnly
-		= requires(SensorType& i) { i.getDirectTemp(); };
+	static constexpr bool Uses32BitSensorData = has_Uses32BitSensorData<SensorType>::value;
+	static constexpr bool DirectTempReadOnly  = has_getDirectTemp<SensorType>::value;
 
 	using RawSensorT =
 		typename std::conditional<Uses32BitSensorData, int32_t, int16_t>::type;

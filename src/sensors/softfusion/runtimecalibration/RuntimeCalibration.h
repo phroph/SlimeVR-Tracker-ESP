@@ -414,8 +414,8 @@ private:
 
 	SlimeVR::Configuration::RuntimeCalibrationSensorConfig calibration{
 		// let's create here transparent calibration that doesn't affect input data
-		.ImuType = {IMU::Type},
-		.MotionlessDataLen = {Base::MotionlessCalibDataSize()},
+		.ImuType = IMU::Type,
+		.MotionlessDataLen = Base::MotionlessCalibDataSize(),
 
 		.sensorTimestepsCalibrated = false,
 		.A_Ts = IMU::AccTs,

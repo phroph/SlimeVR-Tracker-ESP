@@ -52,7 +52,7 @@ private:
 
 			auto key = std::make_tuple(args...);
 
-			if (!cache.contains(key)) {
+			if (cache.find(key) == cache.end()) {
 				auto ptr = new InterfaceClass(args...);
 				if (!ptr->init()) {
 					cache[key] = nullptr;

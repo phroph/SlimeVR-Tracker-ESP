@@ -154,19 +154,6 @@ public:
 		PinInterface* intPin = nullptr,
 		int extraParam = 0
 	) {
-		m_Manager->m_Logger.trace(
-			"Building IMU with: id=%d,\n\
-						address=%s, rotation=%f,\n\
-						interface=%s, int=%s, extraParam=%d, optional=%d",
-			sensorID,
-			imuInterface.toString().c_str(),
-			rotation,
-			sensorInterface->toString().c_str(),
-			intPin->toString().c_str(),
-			extraParam,
-			optional
-		);
-
 		// Now start detecting and building the IMU
 		std::unique_ptr<::Sensor> sensor;
 

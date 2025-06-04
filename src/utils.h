@@ -33,22 +33,22 @@
 template <class T, std::enable_if_t<std::is_enum_v<T>, int> = 0>
 constexpr T operator|(T lhs, T rhs) {
 	return static_cast<T>(
-		static_cast<std::underlying_type<T>::type>(lhs)
-		| static_cast<std::underlying_type<T>::type>(rhs)
+		static_cast<typename std::underlying_type<T>::type>(lhs)
+		| static_cast<typename std::underlying_type<T>::type>(rhs)
 	);
 }
 
 template <class T, std::enable_if_t<std::is_enum_v<T>, int> = 0>
 constexpr T operator&(T lhs, T rhs) {
 	return static_cast<T>(
-		static_cast<std::underlying_type<T>::type>(lhs)
-		& static_cast<std::underlying_type<T>::type>(rhs)
+		static_cast<typename std::underlying_type<T>::type>(lhs)
+		& static_cast<typename std::underlying_type<T>::type>(rhs)
 	);
 }
 
 template <class T, std::enable_if_t<std::is_enum_v<T>, int> = 0>
 constexpr bool any(T t) {
-	return static_cast<std::underlying_type<T>::type>(t) != 0;
+	return static_cast<typename std::underlying_type<T>::type>(t) != 0;
 }
 
 #endif

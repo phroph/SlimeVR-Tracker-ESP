@@ -33,6 +33,13 @@
 
 namespace SlimeVR::Sensor {
 
+// Primary template to check if a type has `MotionlessCalibrationData`
+template <typename T, typename = void>
+struct has_MotionlessCalibrationData : std::false_type {};
+
+template <typename T>
+struct has_MotionlessCalibrationData<T, std::void_t<typename T::MotionlessCalibrationData>> : std::true_type {};
+
 template <typename IMU, typename RawSensorT, typename RawVectorT>
 class CalibrationBase {
 public:
@@ -56,7 +63,7 @@ public:
 		, toggles{toggles} {}
 
 	static constexpr bool HasMotionlessCalib
-		= requires(IMU& i) { typename IMU::MotionlessCalibrationData; };
+		= has_MotionlessCalibrationData<IMU>::value;
 	static constexpr size_t MotionlessCalibDataSize() {
 		if constexpr (HasMotionlessCalib) {
 			return sizeof(typename IMU::MotionlessCalibrationData);
