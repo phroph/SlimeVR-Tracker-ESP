@@ -35,6 +35,8 @@ SensorBuilder::SensorBuilder(SensorManager* sensorManager)
 #define SENSOR_INFO_ENTRY(ImuID, SensorPosition) \
 	m_Manager->m_Sensors[ImuID]->setSensorInfo(SensorPosition);
 
+#undef NO_PIN
+
 uint8_t SensorBuilder::buildAllSensors() {
 	uint8_t sensorID = 0;
 	uint8_t activeSensorCount = 0;

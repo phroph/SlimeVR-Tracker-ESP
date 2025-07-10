@@ -68,7 +68,7 @@ void MPU9250Sensor::motionSetup() {
 	imu.getAcceleration(&ax, &ay, &az);
 	float g_az = (float)az / 16384;  // For 2G sensitivity
 	if (g_az < -0.75f) {
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::SaddleBrown);
 		m_Logger.info("Flip front to confirm start calibration");
 		delay(5000);
 		ledManager.off();
@@ -112,7 +112,7 @@ void MPU9250Sensor::motionSetup() {
 #if MPU_USE_DMPMAG
 	uint8_t devStatus = imu.dmpInitialize();
 	if (devStatus == 0) {
-		ledManager.pattern(50, 50, 5);
+		ledManager.pattern(50, 50, 5, CRGB::HTMLColorCode::SaddleBrown);
 
 		// turn on the DMP, now that it's ready
 		m_Logger.debug("Enabling DMP...");
@@ -240,17 +240,17 @@ void MPU9250Sensor::motionLoop() {
 }
 
 void MPU9250Sensor::startCalibration(int calibrationType) {
-	ledManager.on();
+	ledManager.on(CRGB::HTMLColorCode::SaddleBrown);
 #if MPU_USE_DMPMAG
 	// with DMP, we just need mag data
 	constexpr int calibrationSamples = 300;
 
 	// Blink calibrating led before user should rotate the sensor
 	m_Logger.info("Gently rotate the device while it's gathering magnetometer data");
-	ledManager.pattern(15, 300, 3000 / 310);
+	ledManager.pattern(15, 300, 3000 / 310, CRGB::HTMLColorCode::SaddleBrown);
 	MagnetoCalibration* magneto = new MagnetoCalibration();
 	for (int i = 0; i < calibrationSamples; i++) {
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::SaddleBrown);
 		int16_t mx, my, mz;
 		imu.getMagnetometer(&mx, &my, &mz);
 		magneto->sample(my, mx, -mz);
@@ -326,7 +326,7 @@ void MPU9250Sensor::startCalibration(int calibrationType) {
 		"Gently rotate the device while it's gathering accelerometer and magnetometer "
 		"data"
 	);
-	ledManager.pattern(15, 300, 3000 / 310);
+	ledManager.pattern(15, 300, 3000 / 310, CRGB::HTMLColorCode::SaddleBrown);
 
 	MagnetoCalibration* magneto_acc = new MagnetoCalibration();
 	MagnetoCalibration* magneto_mag = new MagnetoCalibration();
@@ -335,7 +335,7 @@ void MPU9250Sensor::startCalibration(int calibrationType) {
 	// a calibration that takes a second or three and a calibration that takes much
 	// longer.
 	for (int i = 0; i < calibrationSamples; i++) {
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::SaddleBrown);
 		int16_t ax, ay, az, gx, gy, gz, mx, my, mz;
 		imu.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
 		magneto_acc->sample(ax, ay, az);

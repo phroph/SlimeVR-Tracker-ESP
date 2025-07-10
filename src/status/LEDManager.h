@@ -24,6 +24,7 @@
 #define SLIMEVR_LEDMANAGER_H
 
 #include <Arduino.h>
+#include <FastLED.h>
 
 #include "../globals.h"
 #include "../logging/Logger.h"
@@ -31,6 +32,7 @@
 #define DEFAULT_LENGTH 300
 #define DEFAULT_GAP 500
 #define DEFAULT_INTERVAL 3000
+#define NUM_LEDS 1
 
 #define STANDBUY_LENGTH DEFAULT_LENGTH
 #define IMU_ERROR_LENGTH DEFAULT_LENGTH
@@ -56,7 +58,7 @@ public:
 	/*!
 	 *  @brief Turns the LED on
 	 */
-	void on();
+	void on(CRGB::HTMLColorCode color);
 
 	/*!
 	 *  @brief Turns the LED off
@@ -67,7 +69,7 @@ public:
 	 *  @brief Blink the LED for [time]ms. *Can* cause lag
 	 *  @param time Amount of ms to turn the LED on
 	 */
-	void blink(unsigned long time);
+	void blink(unsigned long time, CRGB::HTMLColorCode color);
 
 	/*!
 	 *  @brief Show a pattern on the LED. *Can* cause lag
@@ -75,7 +77,7 @@ public:
 	 *  @param timeoff Amount of ms to turn the LED off
 	 *  @param times Amount of times to display the pattern
 	 */
-	void pattern(unsigned long timeon, unsigned long timeoff, int times);
+	void pattern(unsigned long timeon, unsigned long timeoff, int times, CRGB::HTMLColorCode color);
 
 	void update();
 
@@ -91,6 +93,8 @@ private:
 	bool m_Off = !m_On;
 
 	Logging::Logger m_Logger = Logging::Logger("LEDManager");
+
+	CRGB leds[NUM_LEDS];
 };
 }  // namespace SlimeVR
 

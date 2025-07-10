@@ -594,7 +594,7 @@ void Connection::searchForServer() {
 		m_LastConnectionAttemptTimestamp = now;
 		m_Logger.info("Searching for the server on the local network...");
 		Connection::sendTrackerDiscovery();
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::Amethyst);
 	} else if (m_LastConnectionAttemptTimestamp + 20 < now) {
 		ledManager.off();
 	}
@@ -617,7 +617,8 @@ void Connection::reset() {
 		m_AckedSensorConfigData + MAX_SENSORS_COUNT,
 		SlimeVR::Configuration::SensorConfigBits{}
 	);
-
+	m_UDP.stop();
+	delay(10);
 	m_UDP.begin(m_ServerPort);
 
 	statusManager.setStatus(SlimeVR::Status::SERVER_CONNECTING, true);

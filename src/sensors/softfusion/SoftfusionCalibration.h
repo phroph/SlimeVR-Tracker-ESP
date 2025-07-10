@@ -117,7 +117,7 @@ public:
 			return;
 		}
 
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::Orange);
 		logger.info("Flip front in 5 seconds to start calibration");
 		lastRawSample = eatSamplesReturnLast(5000);
 		gravity = static_cast<sensor_real_t>(
@@ -268,7 +268,7 @@ private:
 			"(%d seconds)",
 			GyroCalibDelaySeconds
 		);
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::Orange);
 		auto lastSamples = eatSamplesReturnLast(GyroCalibDelaySeconds);
 		ledManager.off();
 
@@ -276,8 +276,8 @@ private:
 								+ IMU::TemperatureBias;
 		logger.trace("Calibration temperature: %f", calibration.temperature);
 
-		ledManager.pattern(100, 100, 3);
-		ledManager.on();
+		ledManager.pattern(100, 100, 3, CRGB::HTMLColorCode::Orange);
+		ledManager.on(CRGB::HTMLColorCode::Orange);
 		logger.info("Gyro calibration started...");
 
 		int32_t sumXYZ[3] = {0};
@@ -327,7 +327,7 @@ private:
 			"and do not hold/touch for %d seconds each",
 			AccelCalibRestSeconds
 		);
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::Orange);
 		eatSamplesForSeconds(AccelCalibDelaySeconds);
 		ledManager.off();
 
@@ -350,8 +350,8 @@ private:
 
 		std::vector<float> accelCalibrationChunk;
 		accelCalibrationChunk.resize(numSamplesPerPosition * 3);
-		ledManager.pattern(100, 100, 6);
-		ledManager.on();
+		ledManager.pattern(100, 100, 6, CRGB::HTMLColorCode::Orange);
+		ledManager.on(CRGB::HTMLColorCode::Orange);
 		logger.info("Gathering accelerometer data...");
 		logger.info(
 			"Waiting for position %i, you can leave the device as is...",
@@ -401,8 +401,8 @@ private:
 							numPositionsRecorded++;
 							numCurrentPositionSamples = 0;
 							if (numPositionsRecorded < expectedPositions) {
-								ledManager.pattern(50, 50, 2);
-								ledManager.on();
+								ledManager.pattern(50, 50, 2, CRGB::HTMLColorCode::Orange);
+								ledManager.on(CRGB::HTMLColorCode::Orange);
 								logger.info(
 									"Recorded, waiting for position %i...",
 									numPositionsRecorded + 1
@@ -453,7 +453,7 @@ private:
 			"Calibrating IMU sample rate in %d second(s)...",
 			SampleRateCalibDelaySeconds
 		);
-		ledManager.on();
+		ledManager.on(CRGB::HTMLColorCode::Orange);
 		eatSamplesForSeconds(SampleRateCalibDelaySeconds);
 
 		uint32_t accelSamples = 0;
