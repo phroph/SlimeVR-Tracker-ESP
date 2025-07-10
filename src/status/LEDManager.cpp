@@ -31,10 +31,10 @@ void LEDManager::setup() {
 	if (m_Enabled) {
 		pinMode(m_Pin, OUTPUT);
 		digitalWrite(m_Pin, LED_OFF);
-		#ifdef PIN_RGB
-			FastLED.setBrightness(25);
-			FastLED.addLeds<NEOPIXEL, PIN_RGB>(leds, NUM_LEDS);
-		#endif
+#ifdef PIN_RGB
+		FastLED.setBrightness(25);
+		FastLED.addLeds<NEOPIXEL, PIN_RGB>(leds, NUM_LEDS);
+#endif
 	}
 
 	// Do the initial pull of the state
