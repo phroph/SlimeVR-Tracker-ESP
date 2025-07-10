@@ -33,7 +33,7 @@
 #define SECOND_IMU IMU_AUTO
 #endif
 #ifndef BOARD
-#define BOARD BOARD_CUSTOM
+#define BOARD BOARD_SLIMEVR_V1_2
 #endif
 #ifndef IMU_ROTATION
 #define IMU_ROTATION DEG_90
