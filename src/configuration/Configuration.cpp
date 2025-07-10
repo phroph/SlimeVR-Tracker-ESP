@@ -438,6 +438,10 @@ void Configuration::print() {
 				m_Logger.info("            magEnabled: %d", c.data.bno0XX.magEnabled);
 
 				break;
+			case SensorConfigType::RUNTIME_CALIBRATION:
+				m_Logger.info("            runtimeCalibration: true");
+
+				break;
 		}
 	}
 }
