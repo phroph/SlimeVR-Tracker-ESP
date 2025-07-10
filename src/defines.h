@@ -75,10 +75,4 @@
 // #define BATTERY_SHIELD_R1 10
 // #define BATTERY_SHIELD_R2 40.2
 
-#define PIN_BATTERY_ALERT 12
-#define PIN_RGB 33
-#define PIN_RGB_POWER 21
-#define PIN_MAG_DRDY 10
-#define PIN_MAG_RSTN 9
-
 // ------------------------------

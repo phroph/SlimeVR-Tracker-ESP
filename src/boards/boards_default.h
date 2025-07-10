@@ -105,6 +105,13 @@ INT2(255)
 BATTERY(255)
 LED(LED_OFF)
 
+// Special stuff
+#define PIN_BATTERY_ALERT 12
+#define PIN_RGB 33
+#define PIN_RGB_POWER 21
+#define PIN_MAG_DRDY 10
+#define PIN_MAG_RSTN 9
+
 // Define pins by the examples above
 
 #elif BOARD == BOARD_WROOM32
