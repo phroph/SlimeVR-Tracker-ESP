@@ -42,20 +42,20 @@ void BatteryMonitor::Setup() {
 	}
 #endif
 #if BATTERY_MONITOR == BAT_MAX17048
-       analogReadResolution(12);
-       analogSetAttenuation(adc_attenuation_t::ADC_11db);
-       if (I2CSCAN::hasDevOnBus(0x36)) {
-               address = 0x36;
-       }
-       else {
-        m_Logger.error("MAX17048 not found on I2C bus");
-    }
+	analogReadResolution(12);
+	analogSetAttenuation(adc_attenuation_t::ADC_11db);
+	if (I2CSCAN::hasDevOnBus(0x36)) {
+		address = 0x36;
+	} else {
+		m_Logger.error("MAX17048 not found on I2C bus");
+	}
 #endif
 }
 
 void BatteryMonitor::Loop() {
-#if BATTERY_MONITOR == BAT_EXTERNAL || BATTERY_MONITOR == BAT_INTERNAL \
-	|| BATTERY_MONITOR == BAT_MCP3021 || BATTERY_MONITOR == BAT_INTERNAL_MCP3021 || BATTERY_MONITOR == BAT_MAX17048
+#if BATTERY_MONITOR == BAT_EXTERNAL || BATTERY_MONITOR == BAT_INTERNAL           \
+	|| BATTERY_MONITOR == BAT_MCP3021 || BATTERY_MONITOR == BAT_INTERNAL_MCP3021 \
+	|| BATTERY_MONITOR == BAT_MAX17048
 	auto now_ms = millis();
 	if (now_ms - last_battery_sample >= batterySampleRate) {
 		last_battery_sample = now_ms;
@@ -103,53 +103,57 @@ void BatteryMonitor::Loop() {
 		}
 #endif
 #if BATTERY_MONITOR == BAT_MAX17048
-	m_Logger.info("MAX17048 battery time...");
+		m_Logger.info("MAX17048 battery time...");
 #if PIN_BATTERY_THERM
-	auto Vout = analogReadMilliVolts(PIN_BATTERY_THERM) * 2.0; // 10k voltage divider
-	auto Resistance = 10000 / (4095.0 - Vout);
-	int index = 0;
-	for(int i = 0; i < 50; i++) {
+		auto Vout
+			= analogReadMilliVolts(PIN_BATTERY_THERM) * 2.0;  // 10k voltage divider
+		auto Resistance = 10000 / (4095.0 - Vout);
+		int index = 0;
+		for (int i = 0; i < 50; i++) {
 			if (Resistance > B3950_TABLE[i]) {
-					index = i;
-					break;
+				index = i;
+				break;
 			}
-	}
-	uint8_t temperature;
-	if (Resistance - B3950_TABLE[index] > B3950_TABLE[index-1] - Resistance) {
-			temperature = index - 1;
-	}
-	else {
-			temperature = index;
-	}
-	m_Logger.info("B3950 Thermistor Sample (V=%f, R=%f, T=%d)", Vout/1000.0, Resistance,temperature);
-	uint8_t rcomp0, rcomp;
-	I2Cdev::readByte(address, 0x0C, &rcomp0); // get RCOMP0
-	if (temperature > 20.0) {
-			rcomp = rcomp0 + static_cast<uint8_t>(lround((temperature - 20) * -0.5));
-	} else {
-			rcomp = rcomp0 + static_cast<uint8_t>(lround((temperature - 20) * -5.0));
-	}
-	m_Logger.info("MAX17048 RCOMP Computation (RCOMP0=%d, RCOMP=%d)", rcomp0, rcomp);
-	I2Cdev::writeByte(address, 0x0C, rcomp); // push RCOMP
-#endif
-	if (address > 0)
-	{
-		// Cell voltage register address 0x02
-		uint16_t data;
-			auto status = I2Cdev::readWord(address, 0x02, &data);
-		if (status == 1)
-		{
-			float v = data * (78.125 / 1000000);
-			voltage = (voltage > 0) ? min(voltage, v) : v;
-			m_Logger.info("MAX17048 voltage %f", voltage);
 		}
-	}
-	uint16_t data;
-	auto status = I2Cdev::readWord(address, 0x04, &data);
-	if (status == 1) {
+		uint8_t temperature;
+		if (Resistance - B3950_TABLE[index] > B3950_TABLE[index - 1] - Resistance) {
+			temperature = index - 1;
+		} else {
+			temperature = index;
+		}
+		m_Logger.info(
+			"B3950 Thermistor Sample (V=%f, R=%f, T=%d)",
+			Vout / 1000.0,
+			Resistance,
+			temperature
+		);
+		uint8_t rcomp0, rcomp;
+		I2Cdev::readByte(address, 0x0C, &rcomp0);  // get RCOMP0
+		if (temperature > 20.0) {
+			rcomp = rcomp0 + static_cast<uint8_t>(lround((temperature - 20) * -0.5));
+		} else {
+			rcomp = rcomp0 + static_cast<uint8_t>(lround((temperature - 20) * -5.0));
+		}
+		m_Logger
+			.info("MAX17048 RCOMP Computation (RCOMP0=%d, RCOMP=%d)", rcomp0, rcomp);
+		I2Cdev::writeByte(address, 0x0C, rcomp);  // push RCOMP
+#endif
+		if (address > 0) {
+			// Cell voltage register address 0x02
+			uint16_t data;
+			auto status = I2Cdev::readWord(address, 0x02, &data);
+			if (status == 1) {
+				float v = data * (78.125 / 1000000);
+				voltage = (voltage > 0) ? min(voltage, v) : v;
+				m_Logger.info("MAX17048 voltage %f", voltage);
+			}
+		}
+		uint16_t data;
+		auto status = I2Cdev::readWord(address, 0x04, &data);
+		if (status == 1) {
 			level = data * (0.01 / 256);
-m_Logger.info("MAX17048 level %f", level);
-	}
+			m_Logger.info("MAX17048 level %f", level);
+		}
 #else
 		if (voltage > 0)  // valid measurement
 		{

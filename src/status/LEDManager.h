@@ -77,7 +77,12 @@ public:
 	 *  @param timeoff Amount of ms to turn the LED off
 	 *  @param times Amount of times to display the pattern
 	 */
-	void pattern(unsigned long timeon, unsigned long timeoff, int times, CRGB::HTMLColorCode color);
+	void pattern(
+		unsigned long timeon,
+		unsigned long timeoff,
+		int times,
+		CRGB::HTMLColorCode color
+	);
 
 	void update();
 

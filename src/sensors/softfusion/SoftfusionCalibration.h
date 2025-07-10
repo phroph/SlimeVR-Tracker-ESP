@@ -166,7 +166,8 @@ public:
 		saveCalibration();
 	}
 
-	bool calibrationMatches(const Configuration::SensorConfig& sensorCalibration
+	bool calibrationMatches(
+		const Configuration::SensorConfig& sensorCalibration
 	) final {
 		return sensorCalibration.type
 				== SlimeVR::Configuration::SensorConfigType::SFUSION
@@ -401,7 +402,8 @@ private:
 							numPositionsRecorded++;
 							numCurrentPositionSamples = 0;
 							if (numPositionsRecorded < expectedPositions) {
-								ledManager.pattern(50, 50, 2, CRGB::HTMLColorCode::Orange);
+								ledManager
+									.pattern(50, 50, 2, CRGB::HTMLColorCode::Orange);
 								ledManager.on(CRGB::HTMLColorCode::Orange);
 								logger.info(
 									"Recorded, waiting for position %i...",

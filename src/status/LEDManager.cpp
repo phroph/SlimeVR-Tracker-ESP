@@ -32,7 +32,7 @@ void LEDManager::setup() {
 		pinMode(m_Pin, OUTPUT);
 		digitalWrite(m_Pin, LED_OFF);
 		FastLED.setBrightness(25);
-		FastLED.addLeds<NEOPIXEL, PIN_RGB>(leds,NUM_LEDS);
+		FastLED.addLeds<NEOPIXEL, PIN_RGB>(leds, NUM_LEDS);
 	}
 
 	// Do the initial pull of the state
@@ -41,9 +41,9 @@ void LEDManager::setup() {
 
 void LEDManager::on(CRGB::HTMLColorCode color) {
 	if (m_Enabled) {
-		digitalWrite(m_Pin, m_On);	
+		digitalWrite(m_Pin, m_On);
 		leds[0] = color;
-        FastLED.show();
+		FastLED.show();
 	}
 }
 
@@ -51,7 +51,7 @@ void LEDManager::off() {
 	if (m_Enabled) {
 		digitalWrite(m_Pin, m_Off);
 		leds[0] = CRGB::Black;
-        FastLED.show();
+		FastLED.show();
 	}
 }
 
@@ -61,7 +61,12 @@ void LEDManager::blink(unsigned long time, CRGB::HTMLColorCode color) {
 	off();
 }
 
-void LEDManager::pattern(unsigned long timeon, unsigned long timeoff, int times, CRGB::HTMLColorCode color) {
+void LEDManager::pattern(
+	unsigned long timeon,
+	unsigned long timeoff,
+	int times,
+	CRGB::HTMLColorCode color
+) {
 	for (int i = 0; i < times; i++) {
 		blink(timeon, color);
 		delay(timeoff);
@@ -84,8 +89,7 @@ void LEDManager::update() {
 	auto color = CRGB::Black;
 	if (statusManager.hasStatus(Status::LOADING)) {
 		color = CRGB::White;
-	} else
-	if (statusManager.hasStatus(Status::LOW_BATTERY)) {
+	} else if (statusManager.hasStatus(Status::LOW_BATTERY)) {
 		count = LOW_BATTERY_COUNT;
 		color = CRGB::Red;
 		switch (m_CurrentStage) {
