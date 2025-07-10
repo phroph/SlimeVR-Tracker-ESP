@@ -167,7 +167,8 @@ public:
 	}
 
 	bool calibrationMatches(
-		const Configuration::SensorConfig& sensorCalibration) final {
+		const Configuration::SensorConfig& sensorCalibration
+	) final {
 		return sensorCalibration.type
 				== SlimeVR::Configuration::SensorConfigType::SFUSION
 			&& (sensorCalibration.data.sfusion.ImuType == IMU::Type)
