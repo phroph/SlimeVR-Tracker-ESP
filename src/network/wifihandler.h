@@ -57,7 +57,7 @@ public:
 	WiFiReconnectionStatus getWiFiState();
 
 private:
-	static constexpr float WiFiTimeoutSeconds = 11;
+	static constexpr float WiFiTimeoutSeconds = 20;
 
 	void reportWifiProgress();
 	void setStaticIPIfDefined();
