@@ -30,13 +30,14 @@
 #include <limits>
 
 #include "../../../sensorinterface/RegisterInterface.h"
+#include "callbacks.h"
 #include "vqf.h"
 
 namespace SlimeVR::Sensors::SoftFusion::Drivers {
 
 // Driver uses acceleration range at 4G
 // and gyroscope range at 1000DPS
-// Gyroscope ODR = 400Hz, accel ODR = 100Hz
+// Gyroscope ODR = 200Hz, accel ODR = 100Hz
 // Timestamps reading are not used
 
 // Sensorhub to be implemented
@@ -46,7 +47,7 @@ struct BMI160 {
 	static constexpr auto Name = "BMI160";
 	static constexpr auto Type = SensorTypeID::BMI160;
 
-	static constexpr float GyrTs = 1.0 / 400.0;
+	static constexpr float GyrTs = 1.0 / 200.0;
 	static constexpr float AccTs = 1.0 / 100.0;
 
 	static constexpr float MagTs = 1.0 / 100;
@@ -57,14 +58,7 @@ struct BMI160 {
 	static constexpr float TemperatureZROChange
 		= 2.0f;  // wow maybe BMI270 isn't that bad actually
 
-	static constexpr VQFParams SensorVQFParams{
-		// need to be refined, this IMU sucks
-		.motionBiasEstEnabled = true,
-		.biasSigmaInit = 0.5f,
-		.biasClip = 2.0f,
-		.restThGyr = 0.5f,
-		.restThAcc = 0.196f,
-	};
+	static constexpr VQFParams SensorVQFParams{};
 
 	RegisterInterface& m_RegisterInterface;
 	SlimeVR::Logging::Logger& m_Logger;
@@ -101,7 +95,7 @@ struct BMI160 {
 
 		struct GyrConf {
 			static constexpr uint8_t reg = 0x42;
-			static constexpr uint8_t value = 0b0101010;  // 400Hz, filter mode normal
+			static constexpr uint8_t value = 0b0101001;  // 200Hz, filter mode normal
 		};
 
 		struct GyrRange {
@@ -182,12 +176,7 @@ struct BMI160 {
 		return to_ret;
 	}
 
-	template <typename AccelCall, typename GyroCall, typename TempCall>
-	void bulkRead(
-		AccelCall&& processAccelSample,
-		GyroCall&& processGyroSample,
-		TempCall&& processTempSample
-	) {
+	void bulkRead(DriverCallbacks<int16_t>&& callbacks) {
 		const auto fifo_bytes = m_RegisterInterface.readReg16(Regs::FifoLength) & 0x7FF;
 
 		const auto bytes_to_read = std::min(
@@ -218,7 +207,7 @@ struct BMI160 {
 					gyro[0] = getFromFifo<uint16_t>(i, read_buffer);
 					gyro[1] = getFromFifo<uint16_t>(i, read_buffer);
 					gyro[2] = getFromFifo<uint16_t>(i, read_buffer);
-					processGyroSample(gyro, GyrTs);
+					callbacks.processGyroSample(gyro, GyrTs);
 				}
 
 				if (header & Fifo::AccelDataBit) {
@@ -226,7 +215,7 @@ struct BMI160 {
 					accel[0] = getFromFifo<uint16_t>(i, read_buffer);
 					accel[1] = getFromFifo<uint16_t>(i, read_buffer);
 					accel[2] = getFromFifo<uint16_t>(i, read_buffer);
-					processAccelSample(accel, AccTs);
+					callbacks.processAccelSample(accel, AccTs);
 				}
 			}
 		}
