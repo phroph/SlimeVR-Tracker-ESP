@@ -64,12 +64,12 @@ IPAddress WiFiNetwork::getAddress() { return WiFi.localIP(); }
 
 void WiFiNetwork::setUp() {
 	wifiHandlerLogger.info("Setting up WiFi");
+#if ESP32S3
+    WiFi.setAutoReconnect(false);  // we control reconnects ourselves
+	WiFi.disconnect(true, false);
+#endif
 	WiFi.persistent(true);
 	WiFi.mode(WIFI_STA);
-#if ESP32
-    WiFi.setAutoReconnect(false);  // we control reconnects ourselves
-    WiFi.setAutoConnect(true);     // still auto-connect on boot
-#endif
 	WiFi.hostname("SlimeVR FBT Tracker");
 	wifiHandlerLogger.info(
 		"Loaded credentials for SSID '%s' and pass length %d",
@@ -77,7 +77,10 @@ void WiFiNetwork::setUp() {
 		getPassword().length()
 	);
 
-	trySavedCredentials();
+	wifiState = WiFiReconnectionStatus::NotSetup;
+    hadWifi = false;
+    retriedOnG = false;
+    wifiConnectionTimeout = millis();
 
 #if ESP8266
 #if POWERSAVING_MODE == POWER_SAVING_NONE
@@ -150,83 +153,110 @@ WiFiNetwork::WiFiReconnectionStatus WiFiNetwork::getWiFiState() { return wifiSta
 void WiFiNetwork::upkeep() {
 	wifiProvisioning.upkeepProvisioning();
 
-	if (WiFi.status() == WL_CONNECTED) {
+	const auto now = millis();
+	const auto status = WiFi.status();
+
+	// 1. Physically connected: keep logical state in sync and send RSSI
+	if (status == WL_CONNECTED) {
 		if (!isConnected()) {
-			onConnected();
-			return;
+			static uint32_t connectedAt = millis();
+			if (millis() - connectedAt < WiFiGraceAfterConnectMs) {
+				return;
+			}
+			onConnected();  // sets wifiState = Success
 		}
 
-		if (millis() - lastRssiSample >= 2000) {
-			lastRssiSample = millis();
+		if (now - lastRssiSample >= 2000) {
+			lastRssiSample = now;
 			uint8_t signalStrength = WiFi.RSSI();
 			networkConnection.sendSignalStrength(signalStrength);
 		}
 		return;
 	}
 
-	if (isConnected()) {
+	// 2. We *were* connected (state machine says Success) but link is now lost
+	if (wifiState == WiFiReconnectionStatus::Success) {
 		statusManager.setStatus(SlimeVR::Status::WIFI_CONNECTING, true);
-		wifiHandlerLogger.warn("Connection to WiFi lost, reconnecting...");
-		trySavedCredentials();
+		wifiHandlerLogger.warn(
+			"Connection to WiFi lost (wl_status=%d), restarting WiFi state machine",
+			static_cast<int>(status)
+		);
+		wifiState = WiFiReconnectionStatus::NotSetup;
+		retriedOnG = false;
+		hadWifi = true;
 		return;
 	}
 
-	if (wifiState != WiFiReconnectionStatus::Failed) {
-		reportWifiProgress();
-	}
-
-	if (millis() - wifiConnectionTimeout
-			< static_cast<uint32_t>(WiFiTimeoutSeconds * 1000)
-		&& WiFi.status() == WL_DISCONNECTED) {
+	// 3. First run: kick off initial attempt from upkeep, not from setUp()
+	if (wifiState == WiFiReconnectionStatus::NotSetup) {
+		wifiHandlerLogger.debug("Initial WiFi connect using saved credentials");
+		trySavedCredentials();  // sets wifiState = SavedAttempt and wifiConnectionTimeout
 		return;
 	}
 
-	switch (wifiState) {
-		case WiFiReconnectionStatus::NotSetup:  // Wasn't set up
+	// 4. While an attempt is in progress, wait up to WiFiTimeoutSeconds unless we connect
+	if (wifiState == WiFiReconnectionStatus::SavedAttempt
+		|| wifiState == WiFiReconnectionStatus::HardcodeAttempt
+		|| wifiState == WiFiReconnectionStatus::ServerCredAttempt) {
+
+		const uint32_t timeoutMs
+			= static_cast<uint32_t>(WiFiTimeoutSeconds * 1000);
+
+		if ((now - wifiConnectionTimeout) < timeoutMs && status != WL_CONNECTED) {
+			// Still within this attempt's timeout window and not connected yet
+			reportWifiProgress();
 			return;
-		case WiFiReconnectionStatus::SavedAttempt:  // Couldn't connect with
-													// first set of
-													// credentials
+		}
+	}
+
+	// 5. If we got here, the current attempt either:
+	//    - timed out (now - wifiConnectionTimeout >= timeoutMs), or
+	//    - finished with some final non-connected status.
+	switch (wifiState) {
+		case WiFiReconnectionStatus::SavedAttempt:
+			// Try saved credentials again (G-mode fallback on ESP8266),
+			// otherwise move on to hardcoded.
 			if (!trySavedCredentials()) {
 				tryHardcodedCredentials();
 			}
-			return;
-		case WiFiReconnectionStatus::HardcodeAttempt:  // Couldn't connect with
-													   // second set of credentials
+			break;
+
+		case WiFiReconnectionStatus::HardcodeAttempt:
+			// Try hardcoded credentials (incl. G-mode on ESP8266 once),
+			// otherwise mark as failed.
 			if (!tryHardcodedCredentials()) {
 				wifiState = WiFiReconnectionStatus::Failed;
 			}
-			return;
-		case WiFiReconnectionStatus::ServerCredAttempt:  // Couldn't connect with
-														 // server-sent credentials.
+			break;
+
+		case WiFiReconnectionStatus::ServerCredAttempt:
 			if (!tryServerCredentials()) {
 				wifiState = WiFiReconnectionStatus::Failed;
 			}
-			return;
-		case WiFiReconnectionStatus::Failed:  // Couldn't connect with second set of
-											  // credentials or server credentials
-// Return to the default PHY Mode N.
-#if ESP8266
-			if constexpr (USE_ATTENUATION) {
-				WiFi.setOutputPower(20.0 - ATTENUATION_N);
-			}
-			WiFi.setPhyMode(WIFI_PHY_MODE_11N);
-#endif
-			// Start smart config
+			break;
+
+		case WiFiReconnectionStatus::Failed: {
+			const uint32_t timeoutMs
+				= static_cast<uint32_t>(WiFiTimeoutSeconds * 1000);
+
+			// All credential paths failed: optionally fall back to SmartConfig
 			if (!hadWifi && !WiFi.smartConfigDone()
-				&& millis() - wifiConnectionTimeout
-					   >= static_cast<uint32_t>(WiFiTimeoutSeconds * 1000)) {
-				if (WiFi.status() != WL_IDLE_STATUS) {
-					wifiHandlerLogger.error(
-						"Can't connect from any credentials, error: %d, reason: %s.",
-						static_cast<int>(statusToFailure(WiFi.status())),
-						statusToReasonString(WiFi.status())
-					);
-					wifiConnectionTimeout = millis();
-				}
+				&& (now - wifiConnectionTimeout) >= timeoutMs) {
+				wifiHandlerLogger.error(
+					"Can't connect from any credentials, last wl_status=%d (%s).",
+					static_cast<int>(status),
+					statusToReasonString(status)
+				);
+				wifiConnectionTimeout = now;
 				wifiProvisioning.startProvisioning();
 			}
-			return;
+			break;
+		}
+
+		case WiFiReconnectionStatus::NotSetup:
+		case WiFiReconnectionStatus::Success:
+			// Should have been handled in earlier branches
+			break;
 	}
 }
 
@@ -239,11 +269,12 @@ const char* WiFiNetwork::statusToReasonString(wl_status_t status) {
 			return "Wrong password";
 		case WL_CONNECT_FAILED:
 			return "Connection failed";
-#elif ESP32
+#elif ESP32S3
 		case WL_CONNECT_FAILED:
 			return "Wrong password";
 #endif
-
+        case WL_SCAN_COMPLETED:return "Scan completed";
+        case WL_CONNECTED:     return "Connected";
 		case WL_NO_SSID_AVAIL:
 			return "SSID not found";
 		default:
@@ -258,7 +289,7 @@ WiFiNetwork::WiFiFailureReason WiFiNetwork::statusToFailure(wl_status_t status) 
 #ifdef ESP8266
 		case WL_WRONG_PASSWORD:
 			return WiFiFailureReason::WrongPassword;
-#elif ESP32
+#elif ESP32S3
 		case WL_CONNECT_FAILED:
 			return WiFiFailureReason::WrongPassword;
 #endif
@@ -271,11 +302,12 @@ WiFiNetwork::WiFiFailureReason WiFiNetwork::statusToFailure(wl_status_t status) 
 }
 
 void WiFiNetwork::showConnectionAttemptFailed(const char* type) const {
+	auto status = WiFi.status();
 	wifiHandlerLogger.error(
-		"Can't connect from %s credentials, error: %d, reason: %s.",
+		"Can't connect from %s credentials, wl_status=%d (%s).",
 		type,
-		static_cast<int>(statusToFailure(WiFi.status())),
-		statusToReasonString(WiFi.status())
+		static_cast<int>(status),
+		statusToReasonString(status)
 	);
 }
 

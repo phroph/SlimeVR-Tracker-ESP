@@ -58,6 +58,7 @@ public:
 
 private:
 	static constexpr float WiFiTimeoutSeconds = 20;
+	static constexpr uint32_t WiFiGraceAfterConnectMs = 500;
 
 	void reportWifiProgress();
 	void setStaticIPIfDefined();

@@ -61,6 +61,7 @@ TPSCounter tpsCounter;
 void setup() {
 	Serial.begin(serialBaudRate);
 	globalTimer = timer_create_default();
+	delay(1000);
 
 	Serial.println();
 	Serial.println();
