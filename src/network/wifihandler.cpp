@@ -66,6 +66,10 @@ void WiFiNetwork::setUp() {
 	wifiHandlerLogger.info("Setting up WiFi");
 	WiFi.persistent(true);
 	WiFi.mode(WIFI_STA);
+#if ESP32
+    WiFi.setAutoReconnect(false);  // we control reconnects ourselves
+    WiFi.setAutoConnect(true);     // still auto-connect on boot
+#endif
 	WiFi.hostname("SlimeVR FBT Tracker");
 	wifiHandlerLogger.info(
 		"Loaded credentials for SSID '%s' and pass length %d",

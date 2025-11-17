@@ -38,6 +38,14 @@
 #define TRACKER_TYPE TrackerType::TRACKER_TYPE_SVR_ROTATION
 #endif
 
+SDA(3)
+SCL(4)
+INT(255)
+INT2(255)
+BATTERY(255)
+LED(LED_OFF)
+
+
 // Axis mapping example
 /*
 #include "sensors/axisremap.h"

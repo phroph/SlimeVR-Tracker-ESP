@@ -57,6 +57,12 @@
 #define BATTERY(pin)
 #endif
 
+#ifndef PIN_BATTERY_ALERT
+#define BATTERY_ALERT(pin) constexpr uint8_t PIN_BATTERY_ALERT = pin;
+#else
+#define BATTERY_ALERT(pin)
+#endif
+
 #ifndef LED_PIN
 #define LED(pin) const uint8_t LED_PIN = pin;
 #else
@@ -65,6 +71,18 @@
 
 #ifndef LED_PIN
 extern const uint8_t __attribute__((weak)) LED_PIN;
+#endif
+
+#ifndef PIN_RGB
+#define RGB(pin) const uint8_t PIN_RGB = pin;
+#else
+#define RGB(pin)
+#endif
+
+#ifndef PIN_RGB_POWER
+#define RGB_POWER(pin) const uint8_t PIN_RGB_POWER = pin;
+#else
+#define RGB_POWER(pin)
 #endif
 
 #ifndef BATTERY_SHIELD_RESISTANCE

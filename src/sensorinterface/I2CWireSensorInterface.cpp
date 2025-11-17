@@ -25,10 +25,6 @@
 
 #include <optional>
 
-#ifdef ESP32
-#include "driver/i2c.h"
-#endif
-
 std::optional<uint8_t> activeSCLPin;
 std::optional<uint8_t> activeSDAPin;
 bool isI2CActive = false;
@@ -50,7 +46,9 @@ void swapI2C(uint8_t sclPin, uint8_t sdaPin) {
 		}
 
 		if (isI2CActive) {
-			i2c_set_pin(I2C_NUM_0, sdaPin, sclPin, false, false, I2C_MODE_MASTER);
+			Wire.end();
+			Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
+			Wire.setTimeOut(150);
 		} else {
 			Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
 			Wire.setTimeOut(150);

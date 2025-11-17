@@ -1,29 +1,7 @@
-/*
-	SlimeVR Code is placed under the MIT license
-	Copyright (c) 2022 TheDevMinerTV
-
-	Permission is hereby granted, free of charge, to any person obtaining a copy
-	of this software and associated documentation files (the "Software"), to deal
-	in the Software without restriction, including without limitation the rights
-	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-	copies of the Software, and to permit persons to whom the Software is
-	furnished to do so, subject to the following conditions:
-
-	The above copyright notice and this permission notice shall be included in
-	all copies or substantial portions of the Software.
-
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-	THE SOFTWARE.
-*/
-
 #include "Configuration.h"
 
-#include <LittleFS.h>
+#include <FS.h>
+#include <FFat.h>
 
 #include <cstdint>
 #include <cstring>
@@ -39,130 +17,128 @@
 #define DIR_TOGGLES "/sensortoggles"
 
 namespace SlimeVR::Configuration {
+
 void Configuration::setup() {
-	if (m_Loaded) {
-		return;
-	}
+    if (m_Loaded) {
+        return;
+    }
 
-	bool status = LittleFS.begin();
-	if (!status) {
-		this->m_Logger.warn("Could not mount LittleFS, formatting");
+    // Mount FFat, format on failure
+    bool status = FFat.begin(false);
+    if (!status) {
+        this->m_Logger.warn("Could not mount FFat, formatting");
 
-		status = LittleFS.format();
-		if (!status) {
-			this->m_Logger.warn("Could not format LittleFS, aborting");
-			return;
-		}
+        // formatOnFail = true
+        status = FFat.begin(true);
+        if (!status) {
+            this->m_Logger.error("Could not format FFat, aborting");
+            return;
+        }
+    }
 
-		status = LittleFS.begin();
-		if (!status) {
-			this->m_Logger.error("Could not mount LittleFS, aborting");
-			return;
-		}
-	}
+    if (FFat.exists("/config.bin")) {
+        m_Logger.trace("Found configuration file");
 
-	if (LittleFS.exists("/config.bin")) {
-		m_Logger.trace("Found configuration file");
+        auto file = FFat.open("/config.bin", "r");
 
-		auto file = LittleFS.open("/config.bin", "r");
+        file.read((uint8_t*)&m_Config.version, sizeof(int32_t));
 
-		file.read((uint8_t*)&m_Config.version, sizeof(int32_t));
+        if (m_Config.version < CURRENT_CONFIGURATION_VERSION) {
+            m_Logger.debug(
+                "Configuration is outdated: v%d < v%d",
+                m_Config.version,
+                CURRENT_CONFIGURATION_VERSION
+            );
 
-		if (m_Config.version < CURRENT_CONFIGURATION_VERSION) {
-			m_Logger.debug(
-				"Configuration is outdated: v%d < v%d",
-				m_Config.version,
-				CURRENT_CONFIGURATION_VERSION
-			);
+            if (!runMigrations(m_Config.version)) {
+                m_Logger.error(
+                    "Failed to migrate configuration from v%d to v%d",
+                    m_Config.version,
+                    CURRENT_CONFIGURATION_VERSION
+                );
+                file.close();
+                return;
+            }
+        } else {
+            m_Logger.info("Found up-to-date configuration v%d", m_Config.version);
+        }
 
-			if (!runMigrations(m_Config.version)) {
-				m_Logger.error(
-					"Failed to migrate configuration from v%d to v%d",
-					m_Config.version,
-					CURRENT_CONFIGURATION_VERSION
-				);
-				return;
-			}
-		} else {
-			m_Logger.info("Found up-to-date configuration v%d", m_Config.version);
-		}
+        file.seek(0);
+        file.read((uint8_t*)&m_Config, sizeof(DeviceConfig));
+        file.close();
+    } else {
+        m_Logger.info("No configuration file found, creating new one");
+        m_Config.version = CURRENT_CONFIGURATION_VERSION;
+        save();
+    }
 
-		file.seek(0);
-		file.read((uint8_t*)&m_Config, sizeof(DeviceConfig));
-		file.close();
-	} else {
-		m_Logger.info("No configuration file found, creating new one");
-		m_Config.version = CURRENT_CONFIGURATION_VERSION;
-		save();
-	}
+    loadSensors();
 
-	loadSensors();
+    m_Loaded = true;
 
-	m_Loaded = true;
-
-	m_Logger.info("Loaded configuration");
+    m_Logger.info("Loaded configuration");
 
 #ifdef DEBUG_CONFIGURATION
-	print();
+    print();
 #endif
 }
 
 void Configuration::save() {
-	for (size_t i = 0; i < m_Sensors.size(); i++) {
-		SensorConfig config = m_Sensors[i];
-		if (config.type == SensorConfigType::NONE) {
-			continue;
-		}
+    for (size_t i = 0; i < m_Sensors.size(); i++) {
+        SensorConfig config = m_Sensors[i];
+        if (config.type == SensorConfigType::NONE) {
+            continue;
+        }
 
-		char path[17];
-		sprintf(path, DIR_CALIBRATIONS "/%zu", i);
+        char path[32];
+        sprintf(path, DIR_CALIBRATIONS "/%zu", i);
 
-		m_Logger.trace("Saving sensor config data for %d", i);
+        m_Logger.trace("Saving sensor config data for %d", (int)i);
 
-		File file = LittleFS.open(path, "w");
-		file.write((uint8_t*)&config, sizeof(SensorConfig));
-		file.close();
+        File file = FFat.open(path, "w");
+        file.write((uint8_t*)&config, sizeof(SensorConfig));
+        file.close();
 
-		sprintf(path, DIR_TOGGLES "/%zu", i);
+        sprintf(path, DIR_TOGGLES "/%zu", i);
 
-		m_Logger.trace("Saving sensor toggle state for %d", i);
+        m_Logger.trace("Saving sensor toggle state for %d", (int)i);
 
-		file = LittleFS.open(path, "w");
+        file = FFat.open(path, "w");
 		auto toggleValues = m_SensorToggles[i].getValues();
-		file.write((uint8_t*)&toggleValues, sizeof(SensorToggleValues));
-		file.close();
-	}
+        file.write((uint8_t*)&toggleValues, sizeof(SensorToggleValues));
+        file.close();
+    }
 
-	{
-		File file = LittleFS.open("/config.bin", "w");
-		file.write((uint8_t*)&m_Config, sizeof(DeviceConfig));
-		file.close();
-	}
+    {
+        File file = FFat.open("/config.bin", "w");
+        file.write((uint8_t*)&m_Config, sizeof(DeviceConfig));
+        file.close();
+    }
 
 	// Clean up old toggles directory
-	if (LittleFS.exists(DIR_TOGGLES_OLD)) {
+	if (FFat.exists(DIR_TOGGLES_OLD)) {
 		char path[17] = DIR_TOGGLES_OLD;
 		char* end = path + strlen(DIR_TOGGLES_OLD);
 		Utils::forEachFile(DIR_TOGGLES_OLD, [&](SlimeVR::Utils::File file) {
 			sprintf(end, "/%s", file.name());
-			LittleFS.remove(path);
+			FFat.remove(path);
 			file.close();
 		});
-		LittleFS.rmdir(DIR_TOGGLES_OLD);
+		FFat.rmdir(DIR_TOGGLES_OLD);
 	}
 
-	m_Logger.debug("Saved configuration");
+    m_Logger.debug("Saved configuration");
 }
 
 void Configuration::reset() {
-	LittleFS.format();
+    FFat.format();  // wipe FS
 
-	m_Sensors.clear();
-	m_SensorToggles.clear();
-	m_Config.version = 1;
-	save();
+    m_Sensors.clear();
+    m_SensorToggles.clear();
+    m_Config.version = 1;
+    save();
 
-	m_Logger.debug("Reset configuration");
+    m_Logger.debug("Reset configuration");
 }
 
 int32_t Configuration::getVersion() const { return m_Config.version; }
@@ -170,81 +146,81 @@ int32_t Configuration::getVersion() const { return m_Config.version; }
 size_t Configuration::getSensorCount() const { return m_Sensors.size(); }
 
 SensorConfig Configuration::getSensor(size_t sensorID) const {
-	if (sensorID >= m_Sensors.size()) {
-		return {};
-	}
+    if (sensorID >= m_Sensors.size()) {
+        return {};
+    }
 
-	return m_Sensors.at(sensorID);
+    return m_Sensors.at(sensorID);
 }
 
 void Configuration::setSensor(size_t sensorID, const SensorConfig& config) {
-	size_t currentSensors = m_Sensors.size();
+    size_t currentSensors = m_Sensors.size();
 
-	if (sensorID >= currentSensors) {
-		m_Sensors.resize(sensorID + 1);
-	}
+    if (sensorID >= currentSensors) {
+        m_Sensors.resize(sensorID + 1);
+    }
 
-	m_Sensors[sensorID] = config;
+    m_Sensors[sensorID] = config;
 }
 
 SensorToggleState Configuration::getSensorToggles(size_t sensorId) const {
-	if (sensorId >= m_SensorToggles.size()) {
-		return {};
-	}
+    if (sensorId >= m_SensorToggles.size()) {
+        return {};
+    }
 
-	return m_SensorToggles.at(sensorId);
+    return m_SensorToggles.at(sensorId);
 }
 
 void Configuration::setSensorToggles(size_t sensorId, SensorToggleState state) {
-	size_t currentSensors = m_SensorToggles.size();
+    size_t currentSensors = m_SensorToggles.size();
 
-	if (sensorId >= currentSensors) {
-		m_SensorToggles.resize(sensorId + 1);
-	}
+    if (sensorId >= currentSensors) {
+        m_SensorToggles.resize(sensorId + 1);
+    }
 
-	m_SensorToggles[sensorId] = state;
+    m_SensorToggles[sensorId] = state;
 }
 
 void Configuration::eraseSensors() {
-	m_Sensors.clear();
+    m_Sensors.clear();
 
-	SlimeVR::Utils::forEachFile(DIR_CALIBRATIONS, [&](SlimeVR::Utils::File f) {
-		char path[17];
-		sprintf(path, DIR_CALIBRATIONS "/%s", f.name());
+    SlimeVR::Utils::forEachFile(DIR_CALIBRATIONS, [&](SlimeVR::Utils::File f) {
+        char path[32];
+        sprintf(path, DIR_CALIBRATIONS "/%s", f.name());
 
-		f.close();
+        f.close();
 
-		LittleFS.remove(path);
-	});
+        FFat.remove(path);
+    });
 
-	save();
+    save();
 }
 
 void Configuration::loadSensors() {
-	SlimeVR::Utils::forEachFile(DIR_CALIBRATIONS, [&](SlimeVR::Utils::File f) {
-		SensorConfig sensorConfig;
-		f.read((uint8_t*)&sensorConfig, sizeof(SensorConfig));
+    SlimeVR::Utils::forEachFile(DIR_CALIBRATIONS, [&](SlimeVR::Utils::File f) {
+        SensorConfig sensorConfig;
+        f.read((uint8_t*)&sensorConfig, sizeof(SensorConfig));
 
-		uint8_t sensorId = strtoul(f.name(), nullptr, 10);
-		m_Logger.debug(
-			"Found sensor calibration for %s at index %d",
-			calibrationConfigTypeToString(sensorConfig.type),
-			sensorId
-		);
+        uint8_t sensorId = strtoul(f.name(), nullptr, 10);
+        m_Logger.debug(
+            "Found sensor calibration for %s at index %d",
+            calibrationConfigTypeToString(sensorConfig.type),
+            sensorId
+        );
 
-		if (sensorConfig.type == SensorConfigType::BNO0XX) {
-			SensorToggleState toggles;
-			toggles.setToggle(
-				SensorToggles::MagEnabled,
-				sensorConfig.data.bno0XX.magEnabled
-			);
-			setSensorToggles(sensorId, toggles);
-		}
+        if (sensorConfig.type == SensorConfigType::BNO0XX) {
+            SensorToggleState toggles;
+            toggles.setToggle(
+                SensorToggles::MagEnabled,
+                sensorConfig.data.bno0XX.magEnabled
+            );
+            setSensorToggles(sensorId, toggles);
+        }
 
-		setSensor(sensorId, sensorConfig);
-	});
+        setSensor(sensorId, sensorConfig);
+    });
 
-	if (LittleFS.exists(DIR_TOGGLES_OLD)) {
+	if (FFat.exists(DIR_TOGGLES_OLD)) {
 		SlimeVR::Utils::forEachFile(DIR_TOGGLES_OLD, [&](SlimeVR::Utils::File f) {
 			SensorToggleValues values;
 			// Migration for pre 0.7.0 togglestate, the values started at offset 20 and
@@ -259,7 +235,7 @@ void Configuration::loadSensors() {
 		});
 	}
 
-	SlimeVR::Utils::forEachFile(DIR_TOGGLES, [&](SlimeVR::Utils::File f) {
+    SlimeVR::Utils::forEachFile(DIR_TOGGLES, [&](SlimeVR::Utils::File f) {
 		if (f.size() > sizeof(SensorToggleValues)) {
 			return;
 		}
@@ -267,86 +243,85 @@ void Configuration::loadSensors() {
 		// With the magic of C++ default initialization, the rest of the values should
 		// be their default after reading
 		f.read(reinterpret_cast<uint8_t*>(&values), f.size());
+        uint8_t sensorId = strtoul(f.name(), nullptr, 10);
+        m_Logger.debug("Found sensor toggle state at index %d", sensorId);
 
-		uint8_t sensorId = strtoul(f.name(), nullptr, 10);
-		m_Logger.debug("Found sensor toggle state at index %d", sensorId);
-
-		setSensorToggles(sensorId, SensorToggleState{values});
-	});
+        setSensorToggles(sensorId, SensorToggleState{values});
+    });
 }
 
 bool Configuration::loadTemperatureCalibration(
-	uint8_t sensorId,
-	GyroTemperatureCalibrationConfig& config
+    uint8_t sensorId,
+    GyroTemperatureCalibrationConfig& config
 ) {
-	if (!SlimeVR::Utils::ensureDirectory(DIR_TEMPERATURE_CALIBRATIONS)) {
-		return false;
-	}
+    if (!SlimeVR::Utils::ensureDirectory(DIR_TEMPERATURE_CALIBRATIONS)) {
+        return false;
+    }
 
-	char path[32];
-	sprintf(path, DIR_TEMPERATURE_CALIBRATIONS "/%d", sensorId);
+    char path[32];
+    sprintf(path, DIR_TEMPERATURE_CALIBRATIONS "/%d", sensorId);
 
-	if (!LittleFS.exists(path)) {
-		return false;
-	}
+    if (!FFat.exists(path)) {
+        return false;
+    }
 
-	auto f = SlimeVR::Utils::openFile(path, "r");
-	if (f.isDirectory()) {
-		return false;
-	}
+    auto f = SlimeVR::Utils::openFile(path, "r");
+    if (f.isDirectory()) {
+        return false;
+    }
 
-	if (f.size() != sizeof(GyroTemperatureCalibrationConfig)) {
-		m_Logger.debug(
-			"Found incompatible sensor temperature calibration (size mismatch) "
-			"sensorId:%d, skipping",
-			sensorId
-		);
-		return false;
-	}
+    if (f.size() != sizeof(GyroTemperatureCalibrationConfig)) {
+        m_Logger.debug(
+            "Found incompatible sensor temperature calibration (size mismatch) "
+            "sensorId:%d, skipping",
+            sensorId
+        );
+        return false;
+    }
 
-	SensorConfigType storedConfigType;
-	f.read((uint8_t*)&storedConfigType, sizeof(SensorConfigType));
+    SensorConfigType storedConfigType;
+    f.read((uint8_t*)&storedConfigType, sizeof(SensorConfigType));
 
-	if (storedConfigType != config.type) {
-		m_Logger.debug(
-			"Found incompatible sensor temperature calibration (expected %s, "
-			"found %s) sensorId:%d, skipping",
-			calibrationConfigTypeToString(config.type),
-			calibrationConfigTypeToString(storedConfigType),
-			sensorId
-		);
-		return false;
-	}
+    if (storedConfigType != config.type) {
+        m_Logger.debug(
+            "Found incompatible sensor temperature calibration (expected %s, "
+            "found %s) sensorId:%d, skipping",
+            calibrationConfigTypeToString(config.type),
+            calibrationConfigTypeToString(storedConfigType),
+            sensorId
+        );
+        return false;
+    }
 
-	f.seek(0);
-	f.read((uint8_t*)&config, sizeof(GyroTemperatureCalibrationConfig));
-	m_Logger.debug(
-		"Found sensor temperature calibration for %s sensorId:%d",
-		calibrationConfigTypeToString(config.type),
-		sensorId
-	);
-	return true;
+    f.seek(0);
+    f.read((uint8_t*)&config, sizeof(GyroTemperatureCalibrationConfig));
+    m_Logger.debug(
+        "Found sensor temperature calibration for %s sensorId:%d",
+        calibrationConfigTypeToString(config.type),
+        sensorId
+    );
+    return true;
 }
 
 bool Configuration::saveTemperatureCalibration(
-	uint8_t sensorId,
-	const GyroTemperatureCalibrationConfig& config
+    uint8_t sensorId,
+    const GyroTemperatureCalibrationConfig& config
 ) {
-	if (config.type == SensorConfigType::NONE) {
-		return false;
-	}
+    if (config.type == SensorConfigType::NONE) {
+        return false;
+    }
 
-	char path[32];
-	sprintf(path, DIR_TEMPERATURE_CALIBRATIONS "/%d", sensorId);
+    char path[32];
+    sprintf(path, DIR_TEMPERATURE_CALIBRATIONS "/%d", sensorId);
 
-	m_Logger.trace("Saving temperature calibration data for sensorId:%d", sensorId);
+    m_Logger.trace("Saving temperature calibration data for sensorId:%d", sensorId);
 
-	File file = LittleFS.open(path, "w");
-	file.write((uint8_t*)&config, sizeof(GyroTemperatureCalibrationConfig));
-	file.close();
+    File file = FFat.open(path, "w");
+    file.write((uint8_t*)&config, sizeof(GyroTemperatureCalibrationConfig));
+    file.close();
 
-	m_Logger.debug("Saved temperature calibration data for sensorId:%i", sensorId);
-	return true;
+    m_Logger.debug("Saved temperature calibration data for sensorId:%i", sensorId);
+    return true;
 }
 
 bool Configuration::runMigrations(int32_t version) { return true; }
