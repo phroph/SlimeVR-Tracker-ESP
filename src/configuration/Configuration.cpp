@@ -84,6 +84,10 @@ void Configuration::setup() {
 }
 
 void Configuration::save() {
+    // Make sure directories are there before writing
+    SlimeVR::Utils::ensureDirectory(DIR_CALIBRATIONS);
+    SlimeVR::Utils::ensureDirectory(DIR_TOGGLES);
+
     for (size_t i = 0; i < m_Sensors.size(); i++) {
         SensorConfig config = m_Sensors[i];
         if (config.type == SensorConfigType::NONE) {
@@ -91,41 +95,46 @@ void Configuration::save() {
         }
 
         char path[32];
-        sprintf(path, DIR_CALIBRATIONS "/%zu", i);
 
+        // --- Calibration data ---
+        sprintf(path, DIR_CALIBRATIONS "/%zu", i);
         m_Logger.trace("Saving sensor config data for %d", (int)i);
 
         File file = FFat.open(path, "w");
-        file.write((uint8_t*)&config, sizeof(SensorConfig));
-        file.close();
+        if (!file) {
+            m_Logger.error("Failed to open %s for writing", path);
+        } else {
+            file.write((uint8_t*)&config, sizeof(SensorConfig));
+            file.close();
+        }
 
+        // --- Toggle state ---
         sprintf(path, DIR_TOGGLES "/%zu", i);
-
         m_Logger.trace("Saving sensor toggle state for %d", (int)i);
 
+        SensorToggleState toggleState{};
+        if (i < m_SensorToggles.size()) {
+            toggleState = m_SensorToggles[i];
+        }
+
         file = FFat.open(path, "w");
-		auto toggleValues = m_SensorToggles[i].getValues();
-        file.write((uint8_t*)&toggleValues, sizeof(SensorToggleValues));
-        file.close();
+        if (!file) {
+            m_Logger.error("Failed to open %s for writing", path);
+        } else {
+            file.write((uint8_t*)&toggleState, sizeof(SensorToggleState));
+            file.close();
+        }
     }
 
     {
         File file = FFat.open("/config.bin", "w");
-        file.write((uint8_t*)&m_Config, sizeof(DeviceConfig));
-        file.close();
+        if (!file) {
+            m_Logger.error("Failed to open /config.bin for writing");
+        } else {
+            file.write((uint8_t*)&m_Config, sizeof(DeviceConfig));
+            file.close();
+        }
     }
-
-	// Clean up old toggles directory
-	if (FFat.exists(DIR_TOGGLES_OLD)) {
-		char path[17] = DIR_TOGGLES_OLD;
-		char* end = path + strlen(DIR_TOGGLES_OLD);
-		Utils::forEachFile(DIR_TOGGLES_OLD, [&](SlimeVR::Utils::File file) {
-			sprintf(end, "/%s", file.name());
-			FFat.remove(path);
-			file.close();
-		});
-		FFat.rmdir(DIR_TOGGLES_OLD);
-	}
 
     m_Logger.debug("Saved configuration");
 }
@@ -197,57 +206,44 @@ void Configuration::eraseSensors() {
 }
 
 void Configuration::loadSensors() {
-    SlimeVR::Utils::forEachFile(DIR_CALIBRATIONS, [&](SlimeVR::Utils::File f) {
-        SensorConfig sensorConfig;
-        f.read((uint8_t*)&sensorConfig, sizeof(SensorConfig));
+	// --- Calibration blobs ---
+	SlimeVR::Utils::forEachFile(DIR_CALIBRATIONS, [&](SlimeVR::Utils::File f) {
+		SensorConfig sensorConfig;
+		f.read((uint8_t*)&sensorConfig, sizeof(SensorConfig));
 
-        uint8_t sensorId = strtoul(f.name(), nullptr, 10);
-        m_Logger.debug(
-            "Found sensor calibration for %s at index %d",
-            calibrationConfigTypeToString(sensorConfig.type),
-            sensorId
-        );
+		uint8_t sensorId = strtoul(f.name(), nullptr, 10);
+		m_Logger.debug(
+			"Found sensor calibration for %s at index %d",
+			calibrationConfigTypeToString(sensorConfig.type),
+			sensorId
+		);
 
-        if (sensorConfig.type == SensorConfigType::BNO0XX) {
-            SensorToggleState toggles;
-            toggles.setToggle(
-                SensorToggles::MagEnabled,
-                sensorConfig.data.bno0XX.magEnabled
-            );
-            setSensorToggles(sensorId, toggles);
-        }
+		if (sensorConfig.type == SensorConfigType::BNO0XX) {
+			SensorToggleState toggles;
+			toggles.setToggle(
+				SensorToggles::MagEnabled,
+				sensorConfig.data.bno0XX.magEnabled
+			);
+			setSensorToggles(sensorId, toggles);
+		}
 
-        setSensor(sensorId, sensorConfig);
-    });
+		setSensor(sensorId, sensorConfig);
+	});
 
-	if (FFat.exists(DIR_TOGGLES_OLD)) {
-		SlimeVR::Utils::forEachFile(DIR_TOGGLES_OLD, [&](SlimeVR::Utils::File f) {
-			SensorToggleValues values;
-			// Migration for pre 0.7.0 togglestate, the values started at offset 20 and
-			// there were 3 of them
-			f.seek(20);
-			f.read(reinterpret_cast<uint8_t*>(&values), 3);
-
-			uint8_t sensorId = strtoul(f.name(), nullptr, 10);
-			m_Logger.debug("Found sensor toggle state at index %d", sensorId);
-
-			setSensorToggles(sensorId, SensorToggleState{values});
-		});
-	}
-
-    SlimeVR::Utils::forEachFile(DIR_TOGGLES, [&](SlimeVR::Utils::File f) {
-		if (f.size() > sizeof(SensorToggleValues)) {
+	// --- Toggle state blobs ---
+	SlimeVR::Utils::forEachFile(DIR_TOGGLES, [&](SlimeVR::Utils::File f) {
+		if (f.isDirectory()) {
 			return;
 		}
-		SensorToggleValues values;
-		// With the magic of C++ default initialization, the rest of the values should
-		// be their default after reading
-		f.read(reinterpret_cast<uint8_t*>(&values), f.size());
-        uint8_t sensorId = strtoul(f.name(), nullptr, 10);
-        m_Logger.debug("Found sensor toggle state at index %d", sensorId);
 
-        setSensorToggles(sensorId, SensorToggleState{values});
-    });
+		SensorToggleState sensorToggleState{};
+		f.read((uint8_t*)&sensorToggleState, sizeof(SensorToggleState));
+
+		uint8_t sensorId = strtoul(f.name(), nullptr, 10);
+		m_Logger.debug("Found sensor toggle state at index %d", sensorId);
+
+		setSensorToggles(sensorId, sensorToggleState);
+	});
 }
 
 bool Configuration::loadTemperatureCalibration(
