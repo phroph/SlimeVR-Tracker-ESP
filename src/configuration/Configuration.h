@@ -38,6 +38,7 @@ public:
 
 	void save();
 	void reset();
+	void formatFFat();  // Format LittleFS filesystem (clears all data) - kept name for API compatibility
 
 	void print();
 

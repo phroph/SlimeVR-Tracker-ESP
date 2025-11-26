@@ -74,35 +74,70 @@ std::vector<MagDefinition> MagDriver::supportedMags{
 };
 
 bool MagDriver::init(MagInterface&& interface, bool supports9ByteMags) {
+	// Try to detect magnetometer with fault tolerance
 	for (auto& mag : supportedMags) {
-		interface.setDeviceId(mag.deviceId);
+		try {
+			interface.setDeviceId(mag.deviceId);
 
-		logger.info("Trying mag %s!", mag.name);
+			logger.info("Trying mag %s!", mag.name);
 
-		uint8_t whoAmI = interface.readByte(mag.whoAmIReg);
-		if (whoAmI != mag.expectedWhoAmI) {
-			continue;
+			// Add a small delay to allow I2C bus to stabilize
+			delay(5);
+
+			// Attempt to read WhoAmI register with error handling
+			uint8_t whoAmI;
+			try {
+				whoAmI = interface.readByte(mag.whoAmIReg);
+			} catch (...) {
+				// If readByte throws an exception, log and continue to next mag
+				logger.warn("Failed to read WhoAmI from mag %s (may not be present)", mag.name);
+				continue;
+			}
+
+			// Check if WhoAmI matches expected value
+			if (whoAmI != mag.expectedWhoAmI) {
+				logger.debug("Mag %s WhoAmI mismatch: expected 0x%02x, got 0x%02x", mag.name, mag.expectedWhoAmI, whoAmI);
+				continue;
+			}
+
+			// Check if sensor supports this magnetometer type
+			if (!supports9ByteMags && mag.dataWidth == MagDataWidth::NineByte) {
+				logger.error("The sensor doesn't support 9-byte mags!");
+				continue;
+			}
+
+			logger.info("Found mag %s! Initializing", mag.name);
+
+			// Attempt setup with error handling
+			bool setupSuccess = false;
+			try {
+				setupSuccess = mag.setup(interface);
+			} catch (...) {
+				logger.error("Exception during mag %s setup", mag.name);
+				setupSuccess = false;
+			}
+
+			if (!setupSuccess) {
+				logger.error("Mag %s failed to initialize!", mag.name);
+				continue;  // Try next magnetometer instead of returning false
+			}
+
+			// Successfully detected and initialized
+			detectedMag = mag;
+			this->interface = interface;
+			logger.info("Mag %s successfully initialized", mag.name);
+			return true;
+		} catch (...) {
+			// Catch any unexpected exceptions to prevent kernel panic
+			logger.error("Unexpected error while trying mag %s", mag.name);
+			continue;  // Try next magnetometer
 		}
-
-		if (!supports9ByteMags && mag.dataWidth == MagDataWidth::NineByte) {
-			logger.error("The sensor doesn't support this mag!");
-			return false;
-		}
-
-		logger.info("Found mag %s! Initializing", mag.name);
-
-		if (!mag.setup(interface)) {
-			logger.error("Mag %s failed to initialize!", mag.name);
-			return false;
-		}
-
-		detectedMag = mag;
-
-		break;
 	}
 
+	// No magnetometer detected - this is OK, sensor can work without it
+	logger.info("No magnetometer detected - sensor will operate in 6DoF mode");
 	this->interface = interface;
-	return detectedMag.has_value();
+	return false;  // Return false but don't cause panic - sensor can work without mag
 }
 
 void MagDriver::startPolling() const {

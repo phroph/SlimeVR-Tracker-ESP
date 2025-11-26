@@ -75,9 +75,12 @@ public:
 		sensor_real_t accout[3]
 	);
 
-	void updateBiasForgettingTime(float biasForgettingTime);
+		void updateBiasForgettingTime(float biasForgettingTime);
 
-	[[nodiscard]] bool getRestDetected() const;
+		// State / diagnostics
+		[[nodiscard]] bool getRestDetected() const;
+		// True if VQF detected a disturbed magnetic field (magnetic disturbance rejection)
+		[[nodiscard]] bool getMagDistDetected() const;
 
 protected:
 	sensor_real_t gyrTs;

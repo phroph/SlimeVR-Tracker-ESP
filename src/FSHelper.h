@@ -2,7 +2,7 @@
 #define UTILS_FSHELPER_H
 
 #include <FS.h>
-#include <FFat.h>
+#include <LittleFS.h>
 #include <logging/Logger.h>
 
 #include <functional>

@@ -1,0 +1,1879 @@
+Security Level: 3
+Document #
+
+13-52-22
+
+Title:
+
+Originator:
+
+FAE/Zhiqiang Yang
+
+QMC6309 Preliminary Datasheet
+
+Rev: A
+
+REVISION RECORD
+Rev.
+
+Date
+
+Originator
+
+A
+
+21/02/2023
+
+Zhiqiang Yang
+
+Change Description
+
+Preliminary Version
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+1 / 22
+
+3-Axis Single Chip Magnetic Sensor
+QMC6309
+The QMC6309 is a three-axis magnetic sensor, which integrates magnetic sensors
+and signal condition ASIC into one silicon chip. This wafer level chip scale package
+(WLCSP) is targeted for applications such as e-compass, map rotation, gaming and
+personal navigation in mobile and wearable devices.
+The QMC6309 is based on state-of-the-art, high resolution, magneto-resistive
+technology. Along with the custom-designed 16-bit ADC ASIC, it offers the advantages
+of low noise, high accuracy, low power consumption, offset cancellation and
+temperature compensations. QMC6309 enables 1°to 2°compass heading accuracy.
+The I²C serial bus allows for easy interface.
+The QMC6309 is in a 0.8x0.8x0.5mm3 surface mount 4-pin WLCSP package.
+
+FEATURES
+
+BENEFIT
+
+ 3-Axis Magneto-Resistive Sensors in a 0.8x0.8x0.5
+mm3 WLCSP, Guaranteed to Operate Over an
+Extended Temperature Range of -40 °C to +85 °C.
+
+ Small Size for Highly Integrated Products. Signals Have
+Been Digitized and Calibrated.
+
+ 16 Bit ADC With Low Noise AMR Sensors Achieves 2  Enables 1°To 2°Degree Compass Heading Accuracy,
+milli-Gauss Field Resolution
+
+Allows for Pedestrian Navigation and LBS Applications
+
+ Wide Magnetic Field Range (±32 Gauss)
+
+ Maximizes Sensor’s Full Dynamic Range and Resolution
+
+ Temperature Compensated Data Output
+
+ Automatically Maintains Sensor’s Sensitivity Under Wide
+Operating Temperature Range
+
+ Built-In Self-Test
+
+ Enables Low-Cost Functionality Test After Assembly in
+Production
+
+ Wide Range Operation Voltage (2.5V to 3.6V) and
+
+ Compatible with Battery Powered Applications
+
+ Lead Free Package Construction
+
+ RoHS Compliance
+
+ Software and Algorithm Support Available
+
+ Compassing Heading, Hard Iron, Soft Iron, and Auto
+Calibration Libraries Available
+
+low Power Consumption less 10uA at 1Hz ODR
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+2 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+CONTENTS
+1
+
+INTERNAL SCHEMATIC DIAGRAM ................................................................................................................................... 4
+1.1
+Internal Schematic Diagram ..................................................................................................................................... 4
+1.2
+Block Functions ........................................................................................................................................................ 4
+2
+SPECIFICATIONS AND I/O CHARACTERISTICS .............................................................................................................. 5
+2.1
+Product Specifications .............................................................................................................................................. 5
+2.2
+Absolute Maximum Ratings ..................................................................................................................................... 6
+2.3
+I/O Characteristics .................................................................................................................................................... 6
+3
+PACKAGE PIN CONFIGURATIONS ..................................................................................................................................... 7
+3.1
+Package 3-D View .................................................................................................................................................... 7
+3.2
+Package Outlines ...................................................................................................................................................... 7
+4
+EXTERNAL CONNECTION ................................................................................................................................................... 9
+4.1
+Recommended External Connection ........................................................................................................................ 9
+4.2
+Mounting Considerations ......................................................................................................................................... 9
+4.3
+Layout Considerations .............................................................................................................................................. 9
+5
+BASIC DEVICE OPERATION .............................................................................................................................................. 11
+5.1
+Anisotropic Magneto-Resistive Sensors ................................................................................................................. 11
+5.2
+Power Management ................................................................................................................................................ 11
+5.3
+Power On/Off Time ................................................................................................................................................ 11
+5.4
+Communication Bus Interface I2C and Its Addresses ............................................................................................. 12
+5.5
+Internal Clock ......................................................................................................................................................... 12
+5.6
+Temperature Compensation .................................................................................................................................... 12
+6
+MODES OF OPERATION ..................................................................................................................................................... 13
+6.1
+Modes Transition .................................................................................................................................................... 13
+6.2
+Description of Modes ............................................................................................................................................. 13
+7
+APPLICATION EXAMPLES ................................................................................................................................................. 14
+7.1
+Normal Mode Setup Example ................................................................................................................................ 14
+7.2
+Continuous Mode Setup Example .......................................................................................................................... 14
+7.3
+Self-test Example.................................................................................................................................................... 14
+7.4
+Suspend Mode Example ......................................................................................................................................... 14
+7.5
+Measurement Example ........................................................................................................................................... 14
+7.6
+Soft Reset Example ................................................................................................................................................ 14
+8
+I2C COMMUNICATION PROTOCOL ................................................................................................................................. 15
+8.1
+I2C Timings ............................................................................................................................................................ 15
+8.2
+I2C R/W Operation ................................................................................................................................................. 15
+9
+REGISTERS ........................................................................................................................................................................... 17
+9.1
+Register Map .......................................................................................................................................................... 17
+9.2
+Register Definition ................................................................................................................................................. 17
+10 TAPE AND REEL SPECIFICATION ..................................................................................................................................... 21
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+3 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+1
+
+INTERNAL SCHEMATIC DIAGRAM
+
+1.1
+
+Internal Schematic Diagram
+
+Rev: A
+
+Figure 1. Block Diagram
+
+1.2
+
+Block Functions
+Table 1. Block Functions
+Block
+Function
+AMR bridge
+3-axis magnetic sensor
+MUX
+Multiplexer for sensor channels
+PGA
+Programmable gain amplifier for sensor signals
+ADC
+Analog-to-Digital converter
+Signal conditioning
+Digital blocks for magnetic signal calibration and compensations
+I2C
+Interface logic data I/O
+NVM
+Non-volatile memory
+Register
+Internal register
+Selftest
+Internal driver to generate self-test stimulus
+Set-reset Driver
+Internal driver to initialize magnetic sensor
+Reference
+Voltage/current reference for internal biasing
+CLKGEN.
+Internal oscillator for internal operation
+POR
+Power on reset
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+4 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+2
+
+SPECIFICATIONS AND I/O CHARACTERISTICS
+
+2.1
+
+Product Specifications
+
+Rev: A
+
+Table 2. Specifications (Tested and specified at 25°C, VDD=3.3V, except stated otherwise.)
+Parameter
+Conditions
+Min
+Typ
+Max
+Unit
+Supply Voltage
+VDD
+2.5
+3.3
+3.6
+V
+Suspend Mode
+Total Current on VDD
+1.8
+μA
+Current
+ODR=1Hz
+6/10
+ODR=10Hz
+30/100
+Low power
+Normal Mode
+and high
+ODR=50Hz
+150/500
+uA
+Current [1]
+power mode
+ODR=100Hz
+300/1000
+ODR=200Hz
+600/2000
+Maximum
+Continuous Mode
+OSR1=1
+ODR:
+3500
+uA
+Current[3]
+1500Hz
+Sensor Field
+Full Scale
+-32
+32
+Gauss
+Range
+±32G
+-5
+5
+%
+Sensitivity[2],[3]
+
+Linearity[3]
+Hysteresis[3]
+Offset[4]
+Sensitivity
+Tempco[3]
+Digital Resolution
+
+Field Resolution[3]
+
+X-Y-Z
+Orthogonality[3]
+Operating
+Temperature
+ESD
+
+Field Range = ±32G
+
+1000
+
+LSB/G
+
+Field Range = ±16G
+
+2000
+
+LSB/G
+
+Field Range = ±8G
+Field Range = ±32G
+Happlied= ±16G
+3 sweeps across ±32G
+
+4000
+
+LSB/G
+
+0.6
+
+%FS
+
+0.03
+-1
+
+Ta = -40°C~85°C
+
+1
+
+%FS
+Gauss
+
+±0.05
+
+%/°C
+
+Field Range = ±32G
+OSR=8,8
+
+1.0
+2.5
+
+mGauss
+mGauss
+
+OSR=8,4
+
+3.5
+
+mGauss
+
+OSR=8,2
+
+5.0
+
+mGauss
+
+OSR=8,1
+
+7.0
+
+mGauss
+
+Sensitivity Directions
+
+90±1
+-40
+
+HBM
+CDM
+
+2000
+500
+
+90±3
+
+Degree
+
+85
+
+°C
+V
+
+Notes:
+1. The Normal Mode Current differs at different OSR1 setting. The value of low power mode is measured at
+OSR1=1 setting， and the value of high power mode is measured at OSR1=8.
+2. Sensitivity is calibrated at zero field; it is slightly decreased at high fields.
+3. Based on 3lots characterization results at continuous mode
+4. Null Field Output
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+5 / 22
+
+矽睿
+2.2
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+Absolute Maximum Ratings
+Table 3. Absolute Maximum Ratings (VSS=0)
+Parameter
+VDD
+Storage Temperature
+Exposed to Magnetic Field (all directions)
+Reflow Classification
+
+MIN.
+-0.5
+-40
+
+MAX.
+Unit
+5
+V
+125
+°C
+10000
+Gauss
+MSL 1, 260 C Peak Temperature
+
+WARNING: Operation at or beyond these limits may result in permanent damage to the device. Normal operation
+is not guaranteed at these extremes
+
+2.3
+
+I/O Characteristics
+Table 4. I/O Characteristics (VDD =VDDIO= 3.3V，Tested at 25°C)
+Parameter(Units)
+Symbol Min.
+Typ.
+High Level Input Voltage
+VIH
+0.7*VDDIO
+Low Level Input Voltage
+VIL
+-0.5
+Hysteresis of Schmitt Trigger
+VHYS
+0.1*VDDIO
+Input [1]
+Input Leakage, All Inputs
+IIL
+-10
+High Level output Voltage [2]
+VOH
+0.8*VDDIO
+Low Level output Voltage [3]
+VOL
+
+Max.
+0.3*VDDIO
+
+10
+0.2*VDDIO
+
+Unit
+V
+V
+V
+uA
+V
+V
+
+Notes:
+1. Schmitt trigger input (reference value for design).
+2. Output is Push-Pull.
+3. Output is Open-Drain and Push-Pull. Connect a pull-up resistor externally in Open-Drain mode.
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+6 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+3
+
+PACKAGE PIN CONFIGURATIONS
+
+3.1
+
+Package 3-D View
+
+Rev: A
+
+Arrow indicates direction of magnetic field that generates a positive output reading in normal measurement
+configuration.
+
+< QMC6309 >
+
+Z
+
+Y
+
+X
+Figure 2. Package 3-D View
+
+Figure 3. Package Top View
+Table 5. Pin Configurations
+PIN
+PIN
+I/O
+No.
+NAME
+A1
+VSS
+A2
+SCL
+I
+B1
+VDD
+B2
+SDA
+I/O
+
+3.2
+
+Package Outlines
+
+3.2.1
+
+Package Type
+
+TYPE
+
+Function
+
+CMOS
+Power
+CMOS
+
+Ground
+I2C serial clock line
+Supply Voltage
+I2C serial data line
+
+WLCSP
+3.2.2
+
+Package Size
+0.8mm (Length)*0.8mm (Width)*0.5mm (Height)
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+7 / 22
+
+矽睿
+
+3.2.3
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+Figure 4. Package Size
+Marking
+Tracking code: X1X2X3X4X5
+X1X2X3X4= Package Lot
+X5= Supplier code
+●= Pin1 Identifier
+
+X1 X2 X3
+X4 X5
+Figure 5. Chip Marking
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+8 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+4
+
+EXTERNAL CONNECTION
+
+4.1
+
+Recommended External Connection
+
+4.1.1
+
+I2C Bus interface
+
+Rev: A
+
+Figure 6. When VDDIO is the same as VDD
+
+4.2
+
+Mounting Considerations
+The following is the recommend printed circuit board (PCB) footprint for the QMC6309. Due to the fine pitch of the
+pads, the footprint should be properly centered in the PCB.
+
+Figure 7. QMC6309 PCB footprint
+
+4.3
+
+Layout Considerations
+Besides keeping all components that may contain ferrous materials (nickel, etc.) away from the sensor on both
+sides of the PCB, it is also recommended that there is no conducting copper line under/near the sensor in any of
+the PCB layers.
+
+4.3.1
+
+Solder Paste
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+9 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+A 4-mil stencil and 100% paste coverage is recommended for the electrical contact pads.
+4.3.2
+
+Reflow Assembly
+This device is classified as MSL 1 with 260C peak reflow temperature. Reference IPC/JEDEC standard J-STD033 for additional information.
+No special reflow profile is required for QMC6309, which is compatible with lead eutectic and lead-free solder
+paste reflow profiles. QST recommends adopting solder paste manufacturer’s guidelines. Hand soldering is not
+recommended.
+
+4.3.3
+
+External Capacitors
+The external capacitors C0 should be ceramic type with low ESR characteristics. The exact ESR value is not
+critical, but values less than 200 milli-ohms are recommended. Reservoir capacitor C0 is nominally 2.2 µF in
+capacitance. Low ESR characteristics may not be in many small SMT ceramic capacitors (0402), so be prepared
+to up-size the capacitors (0201) to gain low ESR characteristics.
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+10 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+5
+
+BASIC DEVICE OPERATION
+
+5.1
+
+Anisotropic Magneto-Resistive Sensors
+
+Rev: A
+
+QMC6309 magneto-resistive sensor circuit consists of tri-axial sensors and application specific support circuits to
+measure magnetic fields. With a DC power supply is applied to the sensor two terminals, the sensor converts any
+incident magnetic field in the sensitive axis directions to a differential voltage output.
+The device has an offset cancellation function to eliminate sensor and ASIC offsets. It also applies a self-aligned
+magnetic field to restore magnetic state before each measurement to ensure high accuracy. Because of these
+features, the QMC6309 doesn’t need to calibrate every time in most of application situations. It may need to be
+calibrated once in a new system or a system changes a new battery.
+
+5.2
+
+Power Management
+There are only one power supply pins to the device. VDD provides power for all the internal analog and digital
+functional blocks and I/O.
+When the device is powered on, all registers are reset by POR (Power-On-Reset), then the device transits to the
+suspend mode and waits for further commands.
+Table 6 provides references for two power states.
+Table 6: Power States
+Power State
+VDD
+1
+0V
+2
+2.5V~3.6V
+
+5.3
+
+Power State description
+Device Off, No Power Consumption
+Device On, Enters Suspend Mode after POR, waiting
+for further commands
+
+Power On/Off Time
+After the device is powered on, some time periods are required for the device fully functional. The external power
+supply requires a time period for voltage to ramp up (PSUP), it is less than~10 milli-second. However, it isn’t
+controlled by the device. The Power-On-Reset time period (PORT) includes time to reset all the logics, load
+values in NVM to proper registers, enter the standby mode and get ready for analogy measurements. The power
+on/off time related to the device is in Table 7.
+Table 7. Time Required for Power On/Off
+Parameter
+Symbol Condition
+Power supply
+PSUP
+Time Period that VDD changes
+rise time[1]
+from 0.2V to Operating Voltage
+POR
+PORT
+Time Period After VDD at
+Completion
+Operating Voltage to Ready for
+Time[1]
+I2C Command[2]
+Power off
+SDV
+Voltage that Device
+Voltage[1]
+Considered to be Power
+Down[2].
+Power on
+PINT
+Time Period Required for
+Interval[1]
+Voltage Lower than SDV to
+Enable Next POR[2]
+
+Min.
+
+Typ.
+
+100
+
+Max.
+10
+
+Unit
+mS
+
+3
+
+mS
+
+0.2
+
+V
+
+uS
+
+Notes:
+1. Reference value for design
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+11 / 22
+
+矽睿
+2.
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+When POR circuit detects the rise of VDD voltage, it resets internal circuits and initializes the registers. After reset,
+QMC6309 transits to Suspend Mode.
+PSUP
+<10mS
+
+Suspend
+Mode
+
+Suspend
+Mode
+
+VDD
+
+SDV:0.2V
+
+0V
+PORT
+<3mS
+
+PINT
+>100uS
+
+Power On/Off Timing
+
+Figure 8. Power On/Off Timing
+
+5.4
+
+Communication Bus Interface I2C and Its Addresses
+This device will be connected to a serial interface bus as a slave device under the control of a master device,
+such as the processor. Control of this device is carried out via I²C.
+This device is compliant with I²C Bus Specification. As an I²C compatible device, this device has a 7-bit serial
+address and supports I²C protocols. This device supports standard and fast speed modes, 100kHz and 400kHz,
+respectively. External pull-up resistors are required to support all these modes.
+There are only one I2C address available. The default value is 7CH.
+If more I2C address options are required, please contact factory.
+
+5.5
+
+Internal Clock
+This device has an internal clock for internal digital logic functions and timing management. This clock is not
+available to external usage.
+
+5.6
+
+Temperature Compensation
+This device has built-in Temperature sensor and Temperature compensation function. The compensated
+magnetic sensor data is placed in the Output Data Registers automatically.
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+12 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+6
+
+MODES OF OPERATION
+
+6.1
+
+Modes Transition
+
+Rev: A
+
+The device has three different modes, controlled by register (0x0A), mode bits Mode[1:0]. The main purpose of
+these modes is for power management. The modes can be transited from one to another, as shown below,
+through I2C commands of changing mode bits. The default mode is Suspend Mode.
+
+Figure 9. Modes Transition
+
+6.2
+
+Description of Modes
+
+6.2.1
+
+Normal Mode
+During the Normal mode (MODE bits= 2’b01), the magnetic sensor continuously makes measurements and
+places measured data in data output registers. The field range register is controlled by RNG<1:0> in register 0BH
+and data output rate is controlled by ODR<1:0> in register 0AH. They should be set up properly for your
+applications in the normal mode.
+
+6.2.2
+
+Single Mode
+During the Single Mode (MODE bits=2’b10), the whole chip runs only once and enter in the suspend mode after 1
+measurement is finished.
+
+6.2.3
+
+Continuous Mode
+During the Continuous Mode (MODE bits=2’b11), the whole chip runs all the time without sleep time, so the
+maximum ODR can be got at this mode. The self-test function can only be enabled in Continuous Mode and
+enters in Suspend Mode after the data is updated.
+
+6.2.4
+
+Suspend Mode
+Suspend mode is the default magnetometer state upon POR and soft reset. Only few function blocks are
+activated in this mode which keeps power consumption as low as possible. In this state, register values are hold
+on by a lower power LDO, I2C interface is active, and all register read and write are allowed. There is no
+magnetometer measurement in this Mode.
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+13 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+7
+
+APPLICATION EXAMPLES
+
+7.1
+
+Normal Mode Setup Example
+
+Rev: A
+
+ Write Register 0BH by 0x40 (Define Set/Reset mode, with Set/Reset On, Field Range 32Guass, ODR=200HZ)
+ Write Register 0AH by 0x61 (Set Normal Mode, OSR1=8, OSR2=8)
+
+7.2
+
+Continuous Mode Setup Example
+ Write Register 0BH by 0x00 (Define Set/Reset mode, with Set/Reset On, Field Range 32Guass)
+ Write Register 0AH by 0x63 (Set Continuous Mode, OSR1=8,OSR2=8)
+
+7.3
+
+Self-test Example
+ Write Register 0AH by 0x00 (Set Suspend Mode)
+ Write Register 0AH by 0x03 (Set Continuous Mode)
+ Waiting 20 millisecond until measurement ends
+ Write Register 0EH by 0x80 (Set Selftest enable)
+ Waiting 150 millisecond until measurement ends
+ Check status register 09H[2] ,”1” means ready
+ Read data Register 13H ~ 15H
+ Self-test Judgment: If the delta value of each axis is in the range of following table, the chip is working properly.
+
+Criteria
+（Unit:LSB）
+
+7.4
+
+Selftest_X(13H)
+
+Selftest_Y(14H)
+
+Selftest_Z(15H)
+
+-50 ~ -1
+
+-50 ~ -1
+
+-50 ~ -1
+
+Suspend Mode Example
+ Write Register 0AH by 0x00
+
+7.5
+
+Measurement Example
+ Check status register 09H[0] ,”1” means ready
+ Read data register 01H ~ 06H
+
+7.6
+
+Soft Reset Example
+ Write Register 0BH by 0x80
+ Write Register 0BH by 0x00
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+14 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+8
+
+I2C COMMUNICATION PROTOCOL
+
+8.1
+
+I2C Timings
+
+Rev: A
+
+Below table and graph describe the I2C communication protocol times
+Table 8. I2C Timings
+Parameter
+SCL Clock
+SCL Low Period
+SCL High Period
+SDA Setup Time
+SDA Hold Time
+Start Hold Time
+Start Setup Time
+Stop Setup Time
+New Transmission Time
+Rise Time
+Fall Time
+
+Symbol
+fscl
+tlow
+thigh
+tsudat
+thddat
+thdsta
+tsusta
+tsusto
+tbuf
+tr (trcl,trdat)
+tf (tfcl,tfdat)
+
+Min.
+0
+1.3
+0.6
+0.1
+0.6
+0.6
+0.6
+1.3
+0.02
+0.02
+
+Typ.
+100
+
+Max.
+400
+
+-
+
+0.3
+0.3
+
+Unit
+kHz
+uS
+μS
+μS
+μS
+μS
+μS
+μS
+μS
+μS
+μS
+
+SDA
+
+tlow
+
+tbuf
+
+tf
+
+SCL
+
+thdsta
+
+tr
+
+thddat
+
+thigh
+
+tsudat
+
+SDA
+
+tsusto
+
+tsusta
+
+Figure 10. I2C Timing Diagram
+
+8.2
+
+I2C R/W Operation
+
+8.2.1
+
+Abbreviation
+Table 9. Abbreviation
+SACK
+Acknowledged by slave
+MACK
+Acknowledged by master
+NACK
+Not acknowledged by master
+RW
+Read/Write
+
+8.2.2
+
+Start/Stop/Ack
+START: Data transmission begins with a high to transition on SDA while SCL is held high. Once I2C transmission
+starts, the bus is considered busy.
+STOP: STOP condition is a low to high transition on SDA line while SCL is held high.
+ACK: Each byte of data transferred must be acknowledged. The transmitter must release the SDA line during the
+acknowledge pulse while the receiver must then pull the SDA line low so that it remains stable low during the high
+period of the acknowledge clock cycle.
+NACK: If the receiver doesn’t pull down the SDA line during the high period of the acknowledge clock cycle, it’s
+recognized as NACK by the transmitter.
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+15 / 22
+
+矽睿
+8.2.3
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+I2C Write
+I2C write sequence begins with start condition generated by master followed by 7 bits slave address and a write
+bit (R/W=0). The slave sends an acknowledge bit (ACK=0) and releases the bus. The master sends the one-byte
+register address. The slave again acknowledges the transmission and waits for 8 bits data which shall be written
+to the specified register address. After the slave acknowledges the data byte, the master generates a stop signal
+and terminates the writing protocol.
+
+STOP
+
+Data
+(0x01)
+0 0 0 0 0 0 0 1
+
+SACK
+
+Register Address
+(0x0A)
+0 0 0 0 1 0 1 0
+
+SACK
+
+8.2.4
+
+R
+W
+1 1 1 1 1 0 0 0
+
+SACK
+
+START
+
+Table 10. I2C Write
+Slave Address
+
+I2C Read
+I2C read sequence consists of a one-byte I2C write phase followed by the I2C read phase. A start condition must
+be generated between two phases. The I2C write phase addresses the slave and sends the register address to be
+read. After slave acknowledges the transmission, the master generates again a start condition and sends the
+slave address together with a read bit (R/W=1). Then master releases the bus and waits for the data bytes to be
+read out from slave. After each data byte, the master has to generate an acknowledge bit (ACK = 0) to enable
+further data transfer. A NACK from the master stops the data being transferred from the slave. The slave releases
+the bus so that the master can generate a STOP condition and terminate the transmission.
+
+STOP
+
+Data
+(0x00)
+0 0 0 0 0 0 0 0
+
+NACK
+
+R
+W
+1 1 1 1 1 0 0 1
+
+SACK
+
+START
+
+Slave Address
+
+Register Address
+(0x00)
+0 0 0 0 0 0 0 0
+
+SACK
+
+R
+W
+1 1 1 1 1 0 0 0
+
+SACK
+
+START
+
+Table 11. I2C Read
+Slave Address
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+16 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+9
+
+REGISTERS
+
+9.1
+
+Register Map
+
+Rev: A
+
+The table below provides a list of the 8-bit registers embedded in the device and their respective function and
+addresses.
+Chip ID is located at the address 00H, the default value is 90H. It can be used to recognize device.
+Table 12. Register Map
+Addr.
+
+D7
+
+D6
+
+D5
+
+D4
+
+D3
+
+D2
+
+D1
+
+D0
+
+Access
+
+POR /Soft
+Reset
+
+00H
+
+Chip ID
+
+R Only
+
+90H
+
+01H
+
+Data Output X LSB Register XOUT[7:0]
+
+R Only
+
+00H
+
+02H
+
+Data Output X MSB Register XOUT[15:8]
+
+R Only
+
+00H
+
+03H
+
+Data Output Y LSB Register YOUT[7:0]
+
+R Only
+
+00H
+
+04H
+
+Data Output Y MSB Register YOUT[15:8]
+
+R Only
+
+00H
+
+05H
+
+Data Output Z LSB Register ZOUT[7:0]
+
+R Only
+
+00H
+
+06H
+
+Data Output Z MSB Register ZOUT[15:8]
+
+R Only
+
+00H
+
+R Only
+
+18H
+
+R/W
+
+00H
+
+R/W
+
+00H
+
+R/W
+
+00H
+
+09H
+0AH
+0BH
+0EH
+
+-
+
+-
+
+-
+
+NVM_
+
+NVM_R
+
+LOAD
+
+DY
+
+OSR2[2:0]
+SOFT_
+SELF
+TEST
+
+OSR1[1:0]
+ODR[2:0]
+
+RST
+
+ST_RDY
+
+-
+
+-
+
+OVFL
+
+-
+
+MODE[1:0]
+SET/RESET
+
+RNG[1:0]
+-
+
+-
+
+DRDY
+
+MODE[1:0]
+-
+
+-
+
+-
+
+13H
+
+Data Output X Self-Test Register [7:0]
+
+R Only
+
+00H
+
+14H
+
+Data Output Y Self-Test Register [7:0]
+
+R Only
+
+00H
+
+15H
+
+Data Output Z Self-Test Register [7:0]
+
+R Only
+
+00H
+
+9.2
+
+Register Definition
+
+9.2.1
+
+Output Data Register
+Registers 01H ~ 06H store the measurement data from each axis magnetic sensor in each working mode. In the
+normal mode, the output data is refreshed periodically based on the data update rate ODR setup in control
+registers 0AH. The data stays the same, regardless of reading status through I2C, until new data replaces them.
+Each axis has 16-bit data width in 2’s complement, i.e., MSB of 02H/04H/06H indicates the sign of each axis. The
+output data of each channel saturates at -32768 and 32767.
+Register 13H~15H store the X,Y and Z self-test data under self-test mode separately. The selftest data of each
+channel
+Table 13. Output Data Register
+Addr.
+7
+6
+5
+4
+3
+01H
+Data Output X LSB Register XOUT[7:0]
+
+2
+
+1
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+0
+17 / 22
+
+矽睿
+02H
+03H
+04H
+05H
+06H
+13H
+14H
+15H
+9.2.2
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+Data Output X MSB Register XOUT[15:8]
+Data Output Y LSB Register YOUT[7:0]
+Data Output Y MSB Register YOUT[15:8]
+Data Output Z LSB Register ZOUT[7:0]
+Data Output Z MSB Register ZOUT[15:8]
+Selftest Output X Register XST[7:0]
+Selftest Output Y Register YST[7:0]
+Selftest Output Z Register ZST[7:0]
+
+Status Registers1
+There is one status register located in address 09H.
+Register 09H has two bits indicating for status flags, the rest are reserved for factory use. The status registers are
+read only bits.
+Table 14. Status Registers1
+Addr.
+7
+6
+5
+09H
+-
+
+4
+NVM_LOA
+D_DONE
+
+3
+NVM_RD
+Y
+
+2
+ST_RDY
+
+1
+OVFL
+
+0
+DRDY
+
+DRDY bit denotes the status of data, which is set when all three-axis data is ready and loaded to the output data
+registers in each mode. It is reset to “0” by reading the status register through I2C commands
+DRDY: “0”: no new data, “1”: new data is ready
+OVFL bit is set high when either axis code output exceeds the range of [-32000,32000] LSB and reset to “0” after
+the status register is read.
+OVFL: “0”: no data overflow occurs; “1”: data overflow occurs.
+ST_RDY denotes the status of built-in selftest measurement
+ST_RDY: “0”: selftest not done yet; “1”: selftest is done, selftest data is ready for reading
+NVM_RDY denotes the status of built-in Non-volatile Memory
+NVM_RDY: “0”: NVM not ready for access; “1”: NVM ready for access
+NVM_LOAD_DONE denotes the status of data loading from built-in Non-volatile Memory
+NVM_LOAD_DONE: “0”: data loading from NVM not finished; “1”: data loading from NVM finished
+
+9.2.3
+
+Control Registers1
+Control registers 1 is in address 0AH. It sets the operational modes (MODE) and over sampling rate (OSR).
+Two bits of MODE registers can transfer mode of operations in the device, the four modes are Suspend Mode,
+Normal mode, Single Mode, and Continuous Mode. The default mode after Power-On-Reset (POR) is Suspend
+Mode. Suspend Mode should be added in the middle of mode shifting between Continuous Mode, Single Mode,
+and Normal Mode.
+Over sample Rate (OSR1) registers are used to control bandwidth of an internal digital filter. Larger OSR1 value
+leads to smaller filter bandwidth, less in-band noise and higher power consumption. It could be used to reach a
+good balance between noise and power. Four over sample ratio can be selected, 8,4,2 or 1.
+Another filter is added for better noise performance; The depth can be adjusted through OSR2. There are totally 5
+levels selectable.
+Table 15. Control Registers 1
+Addr
+7
+0AH
+OSR2<2:0>
+
+6
+
+5
+
+4
+
+3
+OSR1<1:0>
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+2
+-
+
+1
+0
+MODE<1:0>
+18 / 22
+
+矽睿
+
+9.2.4
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Reg.
+Mode
+
+Definition
+Mode Control
+
+00
+Suspend Mode
+
+01
+Normal Mode
+
+Reg.
+OSR1
+
+Definition
+Over Sample
+Ratio
+
+00
+8
+
+01
+4
+
+Reg.
+OSR2
+
+Definition
+Low
+Pass
+Filter
+
+000
+1
+
+001
+2
+
+10
+Single Mode
+
+11
+Continuous Mode
+
+10
+2
+
+010
+4
+
+011
+8
+
+Rev: A
+
+11
+1
+
+100
+16
+
+101
+16
+
+110
+16
+
+111
+16
+
+Control Registers2
+Control registers 2 is in address 0BH. It controls soft reset, output data rate and set/reset mode.
+Set/Reset Mode can be control by the register SET/RESET MODE. There are 3 modes for selection：SET AND
+RESET ON， SET ONLY ON and SET AND RESET OFF. In SET ONLY ON or SET AND RESET OFF mode, the
+offset is not renewed during measuring.
+Field ranges of the magnetic sensor can be selected through the register RNG. The full-scale range is determined
+by the application environments. The lowest field range has the highest sensitivity, therefore, higher resolution.
+The Output data rate is controlled by ODR registers. Four data update frequencies can be selected: 10Hz, 50Hz,
+100Hz or 200Hz.
+Soft reset can be done by setting the register SOFT_RST High. Soft reset can be invoked at any time of any
+mode. After setting High，the SOFT_RST bit will not be auto-cleared. So after the soft reset command 0BH=80，
+another command 0BH=00 is always needed.
+
+Table 16. Control Registers2
+Addr.
+7
+6
+5
+0BH
+SOFT_RST ODR[2:0]
+
+9.2.5
+
+4
+
+3
+RNG[1:0]
+
+2
+
+1
+0
+SET/RESET
+MODE<1:0>
+
+Reg.
+SET/RESET
+MODE
+
+Definition
+Set and reset mode
+control
+
+00
+Set and reset
+on
+
+01
+Set only on
+
+10
+-
+
+11
+Set and reset
+off
+
+Reg.
+RNG
+
+Definition
+Full Scale
+Range(Guass)
+
+00
+32
+
+01
+16
+
+10
+8
+
+11
+32
+
+Reg.
+ODR
+
+Definition
+Output data Rate(Hz)
+
+000
+1
+
+Reg.
+SOFT_RST
+
+Definition
+Soft reset
+
+0
+No reset
+
+001
+10
+
+010
+50
+
+011
+100
+
+100
+200
+
+101
+200
+
+110
+200
+
+111
+200
+
+1
+Soft reset, restore default value of all registers
+
+Control Registers3
+Self-test function is added for verification of the signal-chain. When the function is enable through the bit selftest,
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+19 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+an inner-built current is generated and an additional signal is added to the sensor, generating a difference in the
+3 axis value.
+There are 1 bit reserved for built-in selftest. only when the chip is under Continuous Mode, the selftest bit can be
+set high to enable the chip to enter selftest Mode; After the selftest is done and selftest is generated, this bit will
+be auto cleared.
+3 bytes are addressed to store the selftest data. They are 13H for X axis,14H for Y axis and 15H for Z axis.
+Table 17. Control Registers3
+Addr
+7
+6
+0EH
+SELFTEST -
+
+5
+-
+
+Reg.
+SELFTEST
+
+0
+Selftest disable
+
+Definition
+Selftest function control
+
+4
+-
+
+3
+-
+
+2
+-
+
+0
+-
+
+1
+Selftest enable
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+1
+-
+
+20 / 22
+
+矽睿
+
+10
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+TAPE AND REEL SPECIFICATION
+QMC6309 is shipped in a standard carboard box. The box dimension for 1 reel is: L X W X H = cm x cm x cm.
+The quantity is 5000pcs per reel, please handle with care
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+21 / 22
+
+矽睿
+
+Document #: 13-52-22 Title: QMC6309 Preliminary Datasheet
+
+Rev: A
+
+ORDERING INFORMATION
+Ordering Number
+
+Operating
+Temperature
+
+Package
+
+Packaging
+
+QMC6309
+
+-40°C ~ 85°C
+
+WLCSP
+
+Tape and Reel: 5k pieces/reel
+
+FIND OUT MORE
+For more information on QST’s Magnetic Sensors contact us at 86-21-69517300.
+The application circuits herein constitute typical usage and interface of QST product. QST does not provide warranty or assume
+liability of customer-designed circuits derived from this description or depiction.
+QST reserves the right to make changes to improve reliability, function or design. QST does not assume any liability arising out of the
+application or use of any product or circuit described herein; neither does it convey any license under its patent rights nor the rights of
+others.
+
+The information contained herein is the exclusive property of QST, and shall not be distributed,
+reproduced, or disclosed in whole or in part without prior written permission of QST.
+Downloaded From Oneyac.com
+
+22 / 22
+
+单击下面可查看定价，库存，交付和生命周期等信息
+
+>>qst
+
+Downloaded From Oneyac.com
+
+

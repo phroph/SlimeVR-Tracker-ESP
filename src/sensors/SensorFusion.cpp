@@ -131,4 +131,6 @@ void SensorFusion::updateBiasForgettingTime(float biasForgettingTime) {
 
 bool SensorFusion::getRestDetected() const { return vqf.getRestDetected(); }
 
+bool SensorFusion::getMagDistDetected() const { return vqf.getMagDistDetected(); }
+
 }  // namespace SlimeVR::Sensors

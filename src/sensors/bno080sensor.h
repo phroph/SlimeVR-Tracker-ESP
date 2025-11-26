@@ -68,7 +68,21 @@ public:
 	static SensorTypeID checkPresent(
 		SlimeVR::Sensors::RegisterInterface& registerInterface
 	) {
-		// For BNO, just assume it's there if the sensorOnBus check succeeded
+		// BNO085 uses SHTP protocol, not standard I2C register reads
+		// We can't easily verify it's a BNO085 without actually initializing it
+		// However, we should at least verify the address is in the valid range
+		// BNO085 typically uses 0x4a or 0x4b, but can be configured to other addresses
+		// If the address is 0x6a or 0x6b, it's likely an LSM6DSV, not a BNO085
+		uint8_t addr = registerInterface.getAddress();
+		if (addr == 0x6a || addr == 0x6b) {
+			// These addresses are commonly used by LSM6DSV and other sensors
+			// BNO085 rarely uses these addresses, so reject to avoid false positives
+			return SensorTypeID::Unknown;
+		}
+		
+		// For other addresses, we still can't definitively verify it's a BNO085
+		// without initializing it, but at least we've filtered out the common conflicts
+		// The actual initialization in motionSetup() will fail if it's not a BNO085
 		return SensorTypeID::BNO085;
 	}
 

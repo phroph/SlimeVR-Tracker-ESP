@@ -417,6 +417,18 @@ void cmdFactoryReset(CmdParser* parser) {
 	ESP.restart();
 }
 
+void cmdFormatFFat(CmdParser* parser) {
+	logger.warn("FORMAT LittleFS - This will erase all filesystem data!");
+	logger.warn("  - Configuration files");
+	logger.warn("  - Calibration data");
+	logger.warn("  - Toggle states");
+	logger.warn("  - All other LittleFS data");
+	
+	configuration.formatFFat();
+	
+	logger.info("LittleFS format complete. Device will continue with default settings.");
+}
+
 void cmdTemperatureCalibration(CmdParser* parser) {
 	if (parser->getParamCount() > 1) {
 		if (parser->equalCmdParam(1, "PRINT")) {
@@ -477,6 +489,7 @@ void setUp() {
 	cmdCallbacks.addCmd("SET", &cmdSet);
 	cmdCallbacks.addCmd("GET", &cmdGet);
 	cmdCallbacks.addCmd("FRST", &cmdFactoryReset);
+	cmdCallbacks.addCmd("FFMT", &cmdFormatFFat);  // Format FFat filesystem
 	cmdCallbacks.addCmd("REBOOT", &cmdReboot);
 	cmdCallbacks.addCmd("DELCAL", &cmdDeleteCalibration);
 	cmdCallbacks.addCmd("TCAL", &cmdTemperatureCalibration);

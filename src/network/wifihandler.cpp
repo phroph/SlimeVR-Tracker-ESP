@@ -64,7 +64,7 @@ IPAddress WiFiNetwork::getAddress() { return WiFi.localIP(); }
 
 void WiFiNetwork::setUp() {
 	wifiHandlerLogger.info("Setting up WiFi");
-#if ESP32S3
+#if ESP32
     WiFi.setAutoReconnect(false);  // we control reconnects ourselves
 	WiFi.disconnect(true, false);
 #endif
@@ -269,7 +269,7 @@ const char* WiFiNetwork::statusToReasonString(wl_status_t status) {
 			return "Wrong password";
 		case WL_CONNECT_FAILED:
 			return "Connection failed";
-#elif ESP32S3
+#elif ESP32
 		case WL_CONNECT_FAILED:
 			return "Wrong password";
 #endif
@@ -289,7 +289,7 @@ WiFiNetwork::WiFiFailureReason WiFiNetwork::statusToFailure(wl_status_t status) 
 #ifdef ESP8266
 		case WL_WRONG_PASSWORD:
 			return WiFiFailureReason::WrongPassword;
-#elif ESP32S3
+#elif ESP32
 		case WL_CONNECT_FAILED:
 			return WiFiFailureReason::WrongPassword;
 #endif

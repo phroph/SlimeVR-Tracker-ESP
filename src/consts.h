@@ -92,6 +92,7 @@ enum class SensorTypeID : uint8_t {
 #define BOARD_XIAO_ESP32C3 17
 #define BOARD_HARITORA 18  // Used by Haritora/SlimeTora
 #define BOARD_ESP32C6DEVKITC1 19
+#define BOARD_MCI_FENRIR_ESP32S3 20
 #define BOARD_GLOVE_IMU_SLIMEVR_DEV 20  // IMU Glove
 #define BOARD_GESTURES 21  // Used by Gestures
 #define BOARD_SLIMEVR_V1_2 22  // SlimeVR v1.2

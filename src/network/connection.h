@@ -62,6 +62,7 @@ public:
     void update();
     void reset();
     bool isConnected() const { return m_Connected; }
+    IPAddress getServerHost() const { return m_ServerHost; }
 
     // PACKET_ACCEL 4
     void sendSensorAcceleration(uint8_t sensorId, Vector3 vector);

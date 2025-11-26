@@ -32,6 +32,8 @@
 #include "../../sensorinterface/SensorInterface.h"
 #include "../RestCalibrationDetector.h"
 #include "../sensor.h"
+#include "../../mag_calibration.h"
+#include "../../mag_calibration_manager.h"
 #include "TempGradientCalculator.h"
 #include "imuconsts.h"
 #include "motionprocessing/types.h"
@@ -50,6 +52,10 @@ class SoftFusionSensor : public Sensor {
 
 	float lastReadTemperature = 0;
 	uint32_t lastTempPollTime = micros();
+	
+	// Store last calibrated mag reading for telemetry
+	float m_lastMagCal[3] = {0.0f, 0.0f, 0.0f};
+	bool m_hasMagData = false;
 
 	bool detected() const {
 		const auto value
@@ -147,6 +153,47 @@ class SoftFusionSensor : public Sensor {
 			}
 
 			calibrator.provideTempSample(lastReadTemperature);
+		}
+	}
+
+	void processMagSample() {
+		if constexpr (Consts::SupportsMags) {
+			// Read raw mag data from sensor hub (only available for LSM6DSV)
+			int16_t magRaw[3] = {0, 0, 0};
+			if constexpr (requires { m_sensor.readMagFromSensorHub(magRaw); }) {
+				if (!m_sensor.readMagFromSensorHub(magRaw)) {
+					return;  // No new data or error
+				}
+			} else {
+				return;  // Sensor doesn't support readMagFromSensorHub
+			}
+
+			// Convert to float (sensor frame)
+			float m_sens[3] = {
+				static_cast<float>(magRaw[0]),
+				static_cast<float>(magRaw[1]),
+				static_cast<float>(magRaw[2])
+			};
+
+			// TODO: Apply sensor-to-body frame transform if needed
+			// For now, assume sensor frame = body frame
+			float m_body_raw[3];
+			memcpy(m_body_raw, m_sens, sizeof(m_body_raw));
+
+			// Apply mag calibration
+			float m_body_cal[3];
+			const auto& magCal = SlimeVR::MagCalibration::g_magCalManager.getCalibration();
+			SlimeVR::MagCalibration::magCalApply(magCal, m_body_raw, m_body_cal);
+
+			// Store calibrated mag for telemetry
+			memcpy(m_lastMagCal, m_body_cal, sizeof(m_lastMagCal));
+			m_hasMagData = true;
+
+			// During calibration mode, send samples to sidecar (queued, non-blocking)
+			SlimeVR::MagCalibration::g_magCalManager.feedMagSample(m_body_raw[0], m_body_raw[1], m_body_raw[2]);
+
+			// Feed calibrated mag data to VQF
+			m_fusion.updateMag(m_body_cal, SensorType::MagTs);
 		}
 	}
 
@@ -262,7 +309,49 @@ public:
 
 			m_lastRotationPacketSent = now - (elapsed - sendInterval);
 
-			setFusedRotation(m_fusion.getQuaternionQuat());
+			// Process magnetometer data if available
+			if constexpr (Consts::SupportsMags) {
+				processMagSample();
+			}
+
+			// Get quaternion from VQF (body→world orientation)
+			Quat q_vqf = m_fusion.getQuaternionQuat();
+
+			// Convert to array format (used for both telemetry and yaw correction)
+			float q_vqf_array[4] = {q_vqf.w, q_vqf.x, q_vqf.y, q_vqf.z};
+
+			// Send telemetry to sidecar (raw quaternion, before yaw correction)
+			// This is queued and sent asynchronously, so it doesn't block IMU processing
+			if constexpr (Consts::SupportsMags) {
+				// Only send telemetry when we actually have magnetometer data in use.
+				if (m_hasMagData) {
+					// Magnetometer quality heuristic:
+					// - Use VQF's magnetic disturbance detection as the primary signal.
+					// - When a disturbance is detected, report quality 0.0.
+					// - When the field is undisturbed, report quality 1.0.
+					//
+					// This keeps the heuristic simple and robust while exposing meaningful
+					// information to the sidecar without conflating it with other sensors.
+					float magQuality = 1.0f;
+					if (m_fusion.getMagDistDetected()) {
+						magQuality = 0.0f;
+					}
+
+					// Send raw quaternion (before yaw correction) and calibrated mag
+					SlimeVR::MagCalibration::g_magCalManager.sendTelemetry(
+						q_vqf_array, m_lastMagCal, magQuality);
+				}
+			}
+
+			// Apply yaw bias correction from MagSidecar (if enabled and valid)
+			// The sidecar sends yawBiasRad = angle (tracker→global).
+			// We apply rotation of −yawBiasRad around world-up to correct heading.
+			// applyYawBias() handles the guard checks internally (ENABLE_YAW_CONSENSUS, yawBiasValid).
+			float q_final_array[4];
+			SlimeVR::MagCalibration::g_magCalManager.applyYawBias(q_vqf_array, q_final_array);
+			Quat q_final(q_final_array[1], q_final_array[2], q_final_array[3], q_final_array[0]);
+
+			setFusedRotation(q_final);
 			setAcceleration(m_fusion.getLinearAccVec());
 			optimistic_yield(100);
 		}
@@ -333,7 +422,7 @@ public:
 				SoftFusion::MagInterface{
 					.readByte
 					= [&](uint8_t address) { return m_sensor.readAux(address); },
-					.writeByte = [&](uint8_t address, uint8_t value) {},
+					.writeByte = [&](uint8_t address, uint8_t value) { m_sensor.writeAux(address, value); },
 					.setDeviceId
 					= [&](uint8_t deviceId) { m_sensor.setAuxId(deviceId); },
 					.startPolling
@@ -343,6 +432,13 @@ public:
 				},
 				Consts::Supports9ByteMag
 			);
+
+			// Dump diagnostics after magnetometer detection to show actual configured state
+			// Check if the sensor type has a dumpDiagnostics method using SFINAE
+			// This will only compile and call dumpDiagnostics() if the method exists
+			if constexpr (requires { m_sensor.dumpDiagnostics(); }) {
+				m_sensor.dumpDiagnostics();
+			}
 
 			if (toggles.getToggle(SensorToggles::MagEnabled)) {
 				magDriver.startPolling();
@@ -380,6 +476,7 @@ public:
 	uint32_t m_lastRotationUpdateMillis = 0;
 	uint32_t m_lastRotationPacketSent = 0;
 	uint32_t m_lastTemperaturePacketSent = 0;
+	uint32_t m_lastMagSampleTime = 0;
 
 	RestCalibrationDetector calibrationDetector;
 

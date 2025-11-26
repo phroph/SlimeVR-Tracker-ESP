@@ -585,6 +585,24 @@
 				"needManualReboot": false,
 				"shouldOnlyUseDefaults": false
 			}
+		},
+		"BOARD_MCI_FENRIR_ESP32S3": {
+			"values": {
+				"SENSORS": [],
+				"BATTERY": {
+					"type": "BAT_NONE"
+				},
+				"LED": {
+					"LED_PIN": "LED_BUILTIN",
+					"LED_INVERTED": false
+				}
+			},
+			"flashingRules": {
+				"applicationOffset": 0,
+				"needBootPress": false,
+				"needManualReboot": false,
+				"shouldOnlyUseDefaults": false
+			}
 		}
 	}
 }
