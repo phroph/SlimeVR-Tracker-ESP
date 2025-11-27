@@ -24,17 +24,21 @@ void Configuration::setup() {
     }
 
 #ifdef ESP32
-    // Try common partition names for ESP32
+    // Try partition names for ESP32 - prioritize simplefs as it's in the partition table
     bool status = false;
     const char* partitionNames[] = {"simplefs", "ffat", "spiffs", "littlefs"};
     const char* usedPartition = nullptr;
     
     for (const char* partitionName : partitionNames) {
-        status = LittleFS.begin(false, partitionName);
+        m_Logger.debug("Attempting to mount LittleFS on partition: %s", partitionName);
+        // On ESP32, begin() signature: begin(bool formatOnFail, const char* basePath, uint8_t maxOpenFiles, const char* partitionLabel)
+        status = LittleFS.begin(false, "/littlefs", 5, partitionName);
         if (status) {
             usedPartition = partitionName;
-            m_Logger.debug("Mounted LittleFS on partition: %s", partitionName);
+            m_Logger.info("Successfully mounted LittleFS on partition: %s", partitionName);
             break;
+        } else {
+            m_Logger.debug("Failed to mount LittleFS on partition: %s", partitionName);
         }
     }
 #else
@@ -49,20 +53,16 @@ void Configuration::setup() {
         // Try to format each partition by attempting to mount it first, then formatting
         status = false;
         for (const char* partitionName : partitionNames) {
-            // Try to begin with this partition (even if it fails, it sets up for format)
-            if (LittleFS.begin(false, partitionName)) {
-                // Successfully mounted, no need to format
-                usedPartition = partitionName;
-                status = true;
-                break;
-            }
-            // Try to format this partition (format works on the last partition attempted)
+            m_Logger.debug("Attempting to format and mount LittleFS on partition: %s", partitionName);
+            // Select partition for formatting by attempting to begin with it
+            LittleFS.begin(false, "/littlefs", 5, partitionName);
+            // Format the selected partition
             if (LittleFS.format()) {
                 // Format succeeded, try to mount again
-                status = LittleFS.begin(false, partitionName);
+                status = LittleFS.begin(false, "/littlefs", 5, partitionName);
                 if (status) {
                     usedPartition = partitionName;
-                    m_Logger.debug("Formatted and mounted LittleFS on partition: %s", partitionName);
+                    m_Logger.info("Formatted and mounted LittleFS on partition: %s", partitionName);
                     break;
                 }
             }
@@ -230,28 +230,17 @@ void Configuration::formatFFat() {
     const char* usedPartition = nullptr;
     
     for (const char* partitionName : partitionNames) {
-        // Try to begin with this partition (sets up for format)
-        if (LittleFS.begin(false, partitionName)) {
-            // Already mounted, format it
-            if (LittleFS.format()) {
-                // Remount after format
-                if (LittleFS.begin(false, partitionName)) {
-                    usedPartition = partitionName;
-                    success = true;
-                    m_Logger.debug("Formatted and remounted LittleFS on partition: %s", partitionName);
-                    break;
-                }
-            }
-        } else {
-            // Mount failed, try format anyway (works on last attempted partition)
-            if (LittleFS.format()) {
-                // Try to mount after format
-                if (LittleFS.begin(false, partitionName)) {
-                    usedPartition = partitionName;
-                    success = true;
-                    m_Logger.debug("Formatted and mounted LittleFS on partition: %s", partitionName);
-                    break;
-                }
+        m_Logger.debug("Attempting to format LittleFS on partition: %s", partitionName);
+        // Select partition for formatting
+        LittleFS.begin(false, "/littlefs", 5, partitionName);
+        // Format the selected partition
+        if (LittleFS.format()) {
+            // Remount after format
+            success = LittleFS.begin(false, "/littlefs", 5, partitionName);
+            if (success) {
+                usedPartition = partitionName;
+                m_Logger.info("Formatted and mounted LittleFS on partition: %s", partitionName);
+                break;
             }
         }
     }
