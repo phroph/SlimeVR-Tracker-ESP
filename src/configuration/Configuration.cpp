@@ -23,17 +23,61 @@ void Configuration::setup() {
         return;
     }
 
+#ifdef ESP32
+    // Try common partition names for ESP32
+    bool status = false;
+    const char* partitionNames[] = {"simplefs", "ffat", "spiffs", "littlefs"};
+    const char* usedPartition = nullptr;
+    
+    for (const char* partitionName : partitionNames) {
+        status = LittleFS.begin(false, partitionName);
+        if (status) {
+            usedPartition = partitionName;
+            m_Logger.debug("Mounted LittleFS on partition: %s", partitionName);
+            break;
+        }
+    }
+#else
     bool status = LittleFS.begin();
+    const char* usedPartition = "default";
+#endif
+
     if (!status) {
         this->m_Logger.warn("Could not mount LittleFS, formatting");
 
+#ifdef ESP32
+        // Try to format on the first partition name
+        status = LittleFS.format("simplefs");
+        if (!status) {
+            status = LittleFS.format("ffat");
+        }
+        if (!status) {
+            status = LittleFS.format("spiffs");
+        }
+        if (!status) {
+            status = LittleFS.format("littlefs");
+        }
+#else
         status = LittleFS.format();
+#endif
         if (!status) {
             this->m_Logger.warn("Could not format LittleFS, aborting");
             return;
         }
 
+#ifdef ESP32
+        // Try to mount again after format
+        status = false;
+        for (const char* partitionName : partitionNames) {
+            status = LittleFS.begin(false, partitionName);
+            if (status) {
+                usedPartition = partitionName;
+                break;
+            }
+        }
+#else
         status = LittleFS.begin();
+#endif
         if (!status) {
             this->m_Logger.error("Could not mount LittleFS, aborting");
             return;
@@ -44,8 +88,7 @@ void Configuration::setup() {
         m_Logger.trace("Found configuration file");
 
         auto file = LittleFS.open("/config.bin", "r");
-        if (!file) {
-            m_Logger.error("Failed to open /config.bin for reading");
+        if (file) {
             file.read((uint8_t*)&m_Config.version, sizeof(int32_t));
 
             if (m_Config.version < CURRENT_CONFIGURATION_VERSION) {
@@ -71,6 +114,8 @@ void Configuration::setup() {
             file.seek(0);
             file.read((uint8_t*)&m_Config, sizeof(DeviceConfig));
             file.close();
+        } else {
+            m_Logger.error("Failed to open /config.bin for reading");
         }
     } else {
         m_Logger.info("No configuration file found, creating new one");
@@ -183,16 +228,46 @@ void Configuration::reset() {
 void Configuration::formatFFat() {
     m_Logger.warn("Formatting LittleFS filesystem - ALL DATA WILL BE LOST!");
     
+#ifdef ESP32
+    // Try to format on common partition names
+    bool success = LittleFS.format("simplefs");
+    if (!success) {
+        success = LittleFS.format("ffat");
+    }
+    if (!success) {
+        success = LittleFS.format("spiffs");
+    }
+    if (!success) {
+        success = LittleFS.format("littlefs");
+    }
+#else
     bool success = LittleFS.format();
+#endif
     if (!success) {
         m_Logger.error("LittleFS format failed!");
         return;
     }
     
+#ifdef ESP32
+    // Try to remount after format
+    bool mounted = false;
+    const char* partitionNames[] = {"simplefs", "ffat", "spiffs", "littlefs"};
+    for (const char* partitionName : partitionNames) {
+        mounted = LittleFS.begin(false, partitionName);
+        if (mounted) {
+            break;
+        }
+    }
+    if (!mounted) {
+        m_Logger.error("Failed to remount LittleFS after format!");
+        return;
+    }
+#else
     if (!LittleFS.begin()) {
         m_Logger.error("Failed to remount LittleFS after format!");
         return;
     }
+#endif
     
     m_Logger.info("LittleFS formatted successfully. All data cleared.");
     m_Logger.info("  - Configuration files deleted");

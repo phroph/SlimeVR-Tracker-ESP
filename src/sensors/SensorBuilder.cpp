@@ -33,7 +33,9 @@ SensorBuilder::SensorBuilder(SensorManager* sensorManager)
 	sensorID++;
 
 #define SENSOR_INFO_ENTRY(ImuID, SensorPosition) \
-	m_Manager->m_Sensors[ImuID]->setSensorInfo(SensorPosition);
+	if (ImuID < m_Manager->m_Sensors.size() && m_Manager->m_Sensors[ImuID] != nullptr) { \
+		m_Manager->m_Sensors[ImuID]->setSensorInfo(SensorPosition); \
+	}
 
 #undef NO_PIN
 

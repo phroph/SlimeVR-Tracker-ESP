@@ -241,7 +241,17 @@ public:
 					"Can't find sensor type for sensor %d",
 					sensorID
 				);
-				return false;
+				// Add an EmptySensor to maintain vector alignment
+				if (optional) {
+					sensor = std::make_unique<EmptySensor>(sensorID);
+					m_Manager->m_Sensors.push_back(std::move(sensor));
+					return false;
+				} else {
+					// For mandatory sensors, add ErroneousSensor
+					sensor = std::make_unique<ErroneousSensor>(sensorID, SensorTypeID::Unknown);
+					m_Manager->m_Sensors.push_back(std::move(sensor));
+					return false;
+				}
 			}
 
 			auto sensorType = result->first;
