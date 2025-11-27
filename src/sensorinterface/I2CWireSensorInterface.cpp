@@ -47,42 +47,44 @@ void swapI2C(uint8_t sclPin, uint8_t sdaPin) {
 		return;
 	}
 
-	// If I2C is already active, we need to properly end it before switching
-	if (isI2CActive && (activeSCLPin.has_value() || activeSDAPin.has_value())) {
-		// Critical: Wait for any pending transactions to complete before ending
-		// Wire.flush() doesn't wait for transactions, so we need to ensure the bus is idle
-		// Try to complete any pending transmission by doing a dummy transaction
-		// This ensures the I2C driver is in a clean state
-		Wire.flush();
-		
-		// Wait for any in-flight transactions to complete
-		// ESP32 I2C transactions can take up to a few hundred microseconds
-		// We need to wait longer to ensure transactions from SensorHub complete
-		delay(1);  // 1ms should be enough for any pending I2C transaction
-		
-		// Disconnect pins from HWI2C before ending
-		if (activeSCLPin.has_value()) {
-			gpio_set_direction((gpio_num_t)*activeSCLPin, GPIO_MODE_INPUT);
-		}
-		if (activeSDAPin.has_value()) {
-			gpio_set_direction((gpio_num_t)*activeSDAPin, GPIO_MODE_INPUT);
-		}
-		
-		// End the current I2C bus
-		Wire.end();
-		
-		// Additional delay to ensure I2C driver is fully stopped and cleaned up
-		// This is critical to prevent ESP_ERR_INVALID_STATE
-		delay(1);
+	// CRITICAL: On ESP32, we MUST call Wire.end() before Wire.begin() if switching pins
+	// or if Wire might already be initialized. Calling Wire.begin() when already
+	// initialized can leave the driver in an invalid state causing NULL TX buffer errors.
+	
+	// Wait for any pending transactions to complete before ending
+	// Wire.flush() doesn't wait for transactions, so we need to ensure the bus is idle
+	Wire.flush();
+	
+	// Wait for any in-flight transactions to complete
+	// ESP32 I2C transactions can take up to a few hundred microseconds
+	// We need to wait longer to ensure transactions from SensorHub complete
+	delay(2);  // 2ms to be safe for any pending I2C transaction
+	
+	// Disconnect pins from HWI2C before ending (if we had previous pins)
+	if (activeSCLPin.has_value()) {
+		gpio_set_direction((gpio_num_t)*activeSCLPin, GPIO_MODE_INPUT);
 	}
-
+	if (activeSDAPin.has_value()) {
+		gpio_set_direction((gpio_num_t)*activeSDAPin, GPIO_MODE_INPUT);
+	}
+	
+	// ALWAYS end Wire before beginning with new pins on ESP32
+	// This is critical - even if Wire wasn't initialized by us, ending it is safe
+	// and prevents the NULL TX buffer pointer error
+	Wire.end();
+	
+	// Additional delay to ensure I2C driver is fully stopped and cleaned up
+	// This is critical to prevent ESP_ERR_INVALID_STATE
+	delay(2);
+	
 	// Initialize I2C with new pins
+	// On ESP32, Wire.begin() MUST be called after Wire.end() to avoid invalid state
 	Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
 	Wire.setTimeOut(150);
 	
 	// Small delay to ensure I2C driver is fully initialized before use
 	// This prevents NULL TX buffer pointer errors
-	delayMicroseconds(500);
+	delay(1);  // 1ms to ensure driver is ready
 #else
 	Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin));
 #endif

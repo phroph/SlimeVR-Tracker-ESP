@@ -204,12 +204,30 @@ namespace I2CSCAN {
             error = Wire.endTransmission(); // The return value of endTransmission is used to determine if a device is present
             
             // Check for NULL TX buffer pointer error (ESP_ERR_INVALID_STATE)
+            // Error 4 = ESP_ERR_INVALID_STATE or other bus error
             // This can happen if Wire.end() was called during an active transaction
+            // or if Wire.begin() was called when Wire was already initialized
             if (error == 4) {
-                // Error 4 = ESP_ERR_INVALID_STATE or other bus error
-                // Wait a bit and retry once
-                delayMicroseconds(500);
+                // I2C driver is in invalid state - try to recover
+                // Wait longer to ensure any pending operations complete
+                delay(5);  // 5ms to be safe
+                
+#ifdef ESP32
+                // On ESP32, we need to properly reinitialize the I2C bus
+                // This is a recovery attempt - the actual pins should be restored by swapI2C() if needed
                 Wire.flush();
+                delay(1);
+                Wire.end();
+                delay(1);
+                // Note: We can't reinitialize here without knowing the pins
+                // The caller should handle recovery via swapI2C()
+                // Just return false to indicate device not found
+                return false;
+#endif
+                
+                // Retry the transmission after recovery (non-ESP32)
+                Wire.flush();
+                delayMicroseconds(500);
                 Wire.beginTransmission(addr);
                 error = Wire.endTransmission();
             }
