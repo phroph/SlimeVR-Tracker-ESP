@@ -31,36 +31,58 @@ bool isI2CActive = false;
 
 namespace SlimeVR {
 void swapI2C(uint8_t sclPin, uint8_t sdaPin) {
-	if (sclPin != activeSCLPin || sdaPin != activeSDAPin || !isI2CActive) {
-		Wire.flush();
+	// If already on the correct pins and I2C is active, no need to swap
+	if (sclPin == activeSCLPin && sdaPin == activeSDAPin && isI2CActive) {
+		return;
+	}
+
 #ifdef ESP32
-		if (!isI2CActive) {
-			// Reset HWI2C to avoid being affected by I2CBUS reset
-			Wire.end();
-		}
-
-		if (activeSCLPin && activeSDAPin) {
-			// Disconnect pins from HWI2C
-			gpio_set_direction((gpio_num_t)*activeSCLPin, GPIO_MODE_INPUT);
-			gpio_set_direction((gpio_num_t)*activeSDAPin, GPIO_MODE_INPUT);
-		}
-
-		if (isI2CActive) {
-			Wire.end();
-			Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
-			Wire.setTimeOut(150);
-		} else {
-			Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
-			Wire.setTimeOut(150);
-		}
-#else
-		Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin));
-#endif
-
+	// Check if we're switching to the default pins that were initialized in main.cpp
+	// If so, and I2C hasn't been marked as active yet, just update state without reinitializing
+	if (!isI2CActive && sclPin == PIN_IMU_SCL && sdaPin == PIN_IMU_SDA) {
+		// Wire was already initialized in main.cpp, just update our state
 		activeSCLPin = sclPin;
 		activeSDAPin = sdaPin;
 		isI2CActive = true;
+		return;
 	}
+
+	// If I2C is already active, we need to properly end it before switching
+	if (isI2CActive && (activeSCLPin.has_value() || activeSDAPin.has_value())) {
+		// Wait for any pending transactions to complete
+		// Wire.flush() doesn't wait, so we need to ensure transactions are done
+		Wire.flush();
+		
+		// Small delay to ensure any in-flight transactions complete
+		// ESP32 I2C transactions can take up to a few hundred microseconds
+		delayMicroseconds(500);
+		
+		// Disconnect pins from HWI2C before ending
+		if (activeSCLPin.has_value()) {
+			gpio_set_direction((gpio_num_t)*activeSCLPin, GPIO_MODE_INPUT);
+		}
+		if (activeSDAPin.has_value()) {
+			gpio_set_direction((gpio_num_t)*activeSDAPin, GPIO_MODE_INPUT);
+		}
+		
+		// End the current I2C bus
+		Wire.end();
+		
+		// Additional delay to ensure I2C driver is fully stopped
+		// This is critical to prevent ESP_ERR_INVALID_STATE
+		delayMicroseconds(500);
+	}
+
+	// Initialize I2C with new pins
+	Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
+	Wire.setTimeOut(150);
+#else
+	Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin));
+#endif
+
+	activeSCLPin = sclPin;
+	activeSDAPin = sdaPin;
+	isI2CActive = true;
 }
 
 void disconnectI2C() {

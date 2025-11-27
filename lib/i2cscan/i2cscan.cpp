@@ -142,7 +142,12 @@ namespace I2CSCAN {
         // Reinitialize if we just wrapped around addresses or if bus was ended
         if (currentAddress == 1) {
 #ifdef ESP32
+            // Wait for any pending transactions to complete before ending
+            Wire.flush();
+            delayMicroseconds(500);
             Wire.end();
+            // Additional delay to ensure I2C driver is fully stopped
+            delayMicroseconds(500);
             Wire.begin((int)validPorts[currentSDA], (int)validPorts[currentSCL]);
             Wire.setTimeOut(150);
 #else

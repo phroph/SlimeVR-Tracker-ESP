@@ -207,9 +207,6 @@ public:
 	) {
 		sensorInterface->init();
 		sensorInterface->swapIn();
-		
-		// Small delay to ensure I2C bus is stable after initialization
-		delay(5);
 
 		return checkSensorsPresent<
 			AccessInterface,
