@@ -62,6 +62,14 @@ struct LSM6DSV : LSM6DSOutputHandler {
 
 	static constexpr VQFParams SensorVQFParams{};
 
+	// I2C Master configuration bit masks
+	static constexpr uint8_t MASTER_CFG_RST_MASTER   = 1u << 7;
+	static constexpr uint8_t MASTER_CFG_WRITE_ONCE   = 1u << 6;
+	static constexpr uint8_t MASTER_CFG_START_CONFIG = 1u << 5;
+	static constexpr uint8_t MASTER_CFG_PASS_THROUGH = 1u << 4;
+	static constexpr uint8_t MASTER_CFG_MASTER_ON    = 1u << 2;
+	static constexpr uint8_t MASTER_CFG_AUX_SENS_ON  = 0x03; // bits 1:0
+
 	struct Regs {
 		struct WhoAmI {
 			static constexpr uint8_t reg = 0x0f;
@@ -357,8 +365,9 @@ struct LSM6DSV : LSM6DSOutputHandler {
 		m_Logger.info("  WRITE_ONCE (bit 6): %d (0=write each cycle, 1=write once - REQUIRED for read transactions!)", (masterConfig >> 6) & 0x01);
 		m_Logger.info("  START_CONFIG (bit 5): %d (0=DRDY trigger, 1=INT2 trigger)", (masterConfig >> 5) & 0x01);
 		m_Logger.info("  PASS_THROUGH_MODE (bit 4): %d (0=disabled)", (masterConfig >> 4) & 0x01);
-		m_Logger.info("  MASTER_ON (bit 3): %d (1=enabled - CRITICAL!)", (masterConfig >> 3) & 0x01);
-		m_Logger.info("  AUX_SENS_ON[1:0] (bits 2-1): %d (00=1 sensor, 01=2, 10=3, 11=4)", (masterConfig >> 1) & 0x03);
+		m_Logger.info("  RESERVED BIT (bit 3): %d (0=valid - CRITICAL!)", (masterConfig >> 3) & 0x01);
+		m_Logger.info("  MASTER_ON (bit 2): %d (1=enabled - CRITICAL!)", (masterConfig >> 2) & 0x01);
+		m_Logger.info("  AUX_SENS_ON[1:0] (bits 2-1): %d (00=1 sensor, 01=2, 10=3, 11=4)", (masterConfig) & 0x03);
 		
 		// Slave 0 configuration
 		uint8_t slv0Add = m_RegisterInterface.readReg(Regs::I2CMasterAddr::reg);
@@ -408,7 +417,7 @@ struct LSM6DSV : LSM6DSOutputHandler {
 		m_Logger.info("  Mode 2: SDx/SCx available as MSDA/MSCL (sensor hub I2C master) - REQUIRED!");
 		m_Logger.info("  Mode 3: SDx/SCx available as auxiliary SPI (sensor hub NOT available)");
 		m_Logger.info("Current configuration suggests:");
-		if ((masterConfig & (1 << 3)) != 0) {
+		if ((masterConfig & (1 << 2)) != 0) {
 			m_Logger.info("  - Sensor hub I2C master is ENABLED (Mode 2 likely active)");
 		} else {
 			m_Logger.info("  - Sensor hub I2C master is DISABLED (Mode 2 may not be active)");
@@ -422,7 +431,7 @@ struct LSM6DSV : LSM6DSOutputHandler {
 		// === CRITICAL ANALYSIS ===
 		m_Logger.info("--- Critical Sensor Hub Analysis ---");
 		m_Logger.info("Sensor Hub Configuration Status:");
-		m_Logger.info("  MASTER_ON: %s", ((masterConfig & (1 << 3)) != 0) ? "ENABLED ✓" : "DISABLED ✗");
+		m_Logger.info("  MASTER_ON: %s", ((masterConfig & (1 << 2)) != 0) ? "ENABLED ✓" : "DISABLED ✗");
 		m_Logger.info("  WRITE_ONCE: %s (1=required for read transactions)", 
 			((masterConfig >> 6) & 0x01) != 0 ? "ENABLED ✓" : "DISABLED ✗");
 		m_Logger.info("  START_CONFIG: %s (0=DRDY trigger, 1=INT2 trigger)", 
@@ -456,7 +465,7 @@ struct LSM6DSV : LSM6DSOutputHandler {
 			((statusReg & 0x03) != 0) ? "✓ (data ready)" : "✗ (no data ready)");
 		
 		// Determine if sensor hub should be working
-		bool configOk = ((masterConfig & (1 << 3)) != 0) && 
+		bool configOk = ((masterConfig & (1 << 2)) != 0) && 
 		                ((slv0Add & 0xFE) != 0x00) && 
 		                ((slv0Config & 0x07) != 0) &&
 		                ((statusReg & 0x03) != 0);
@@ -524,24 +533,21 @@ private:
         uint8_t cfg = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
 
         if (!sensorHubInitialized_) {
-            // RST_MASTER_REGS: must be set 1 then 0
-            uint8_t withReset = cfg | (1u << 7);
-            m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, withReset);
-            delay(1);
-            withReset &= ~(1u << 7);
-            m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, withReset);
-            delay(1);
-            cfg = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
+			m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, cfg | MASTER_CFG_RST_MASTER);
+			delay(1);
+			m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, cfg & ~MASTER_CFG_RST_MASTER);
+			delay(1);
+			cfg = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
         }
 
-        // Clear bits we care about: START_CONFIG, PASS_THROUGH, AUX_SENS_ON
-        cfg &= ~((1u << 5) | (1u << 4) | (3u << 1));
+		// Clear START_CONFIG, PASS_THROUGH, AUX_SENS_ON[1:0] and ensure reserved bit 3 = 0
+		cfg &= ~(MASTER_CFG_START_CONFIG |
+			MASTER_CFG_PASS_THROUGH |
+			MASTER_CFG_AUX_SENS_ON |
+			(1u << 3)); // reserved
 
-        // MASTER_ON = 1, WRITE_ONCE = 1, START_CONFIG = 0, AUX_SENS_ON = 00 (one sensor)
-        cfg |= (1u << 6); // WRITE_ONCE
-        cfg |= (1u << 3); // MASTER_ON
-        // START_CONFIG already 0 → trigger from accel/gyro DRDY
-        // AUX_SENS_ON[1:0] = 00 → one external sensor according to datasheet
+		// Enable WRITE_ONCE and MASTER_ON
+		cfg |= MASTER_CFG_WRITE_ONCE | MASTER_CFG_MASTER_ON;
 
         m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, cfg);
         delay(1);
@@ -831,7 +837,7 @@ public:
 
         m_Logger.info("MASTER_CONFIG=0x%02x (MASTER_ON=%d, WRITE_ONCE=%d, AUX_SENS_ON=%d)",
                       masterCfg,
-                      (masterCfg >> 3) & 1,
+                      (masterCfg >> 2) & 1,
                       (masterCfg >> 6) & 1,
                       (masterCfg >> 1) & 0x03);
         m_Logger.info("SLV0_ADD=0x%02x (addr7=0x%02x, rw=%d)", slvAdd, addr7, rw);
