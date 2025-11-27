@@ -7,5 +7,6 @@ nvs,      data, nvs,      0x9000,  20K,
 otadata,  data, ota,      0xe000,  8K,
 ota_0,    0,    ota_0,   0x10000,  1536K,
 ota_1,    0,    ota_1,  0x190000,  1536K,
-simplefs, data, littlefs,  0x310000,  960K,
+coredump, data, coredump, 0x310000,  128K,
+simplefs, data, littlefs,  0x330000,  832K,
 
