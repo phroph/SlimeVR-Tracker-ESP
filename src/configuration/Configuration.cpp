@@ -46,40 +46,35 @@ void Configuration::setup() {
         this->m_Logger.warn("Could not mount LittleFS, formatting");
 
 #ifdef ESP32
-        // Try to format on the first partition name
-        status = LittleFS.format("simplefs");
-        if (!status) {
-            status = LittleFS.format("ffat");
-        }
-        if (!status) {
-            status = LittleFS.format("spiffs");
-        }
-        if (!status) {
-            status = LittleFS.format("littlefs");
-        }
-#else
-        status = LittleFS.format();
-#endif
-        if (!status) {
-            this->m_Logger.warn("Could not format LittleFS, aborting");
-            return;
-        }
-
-#ifdef ESP32
-        // Try to mount again after format
+        // Try to format each partition by attempting to mount it first, then formatting
         status = false;
         for (const char* partitionName : partitionNames) {
-            status = LittleFS.begin(false, partitionName);
-            if (status) {
+            // Try to begin with this partition (even if it fails, it sets up for format)
+            if (LittleFS.begin(false, partitionName)) {
+                // Successfully mounted, no need to format
                 usedPartition = partitionName;
+                status = true;
                 break;
+            }
+            // Try to format this partition (format works on the last partition attempted)
+            if (LittleFS.format()) {
+                // Format succeeded, try to mount again
+                status = LittleFS.begin(false, partitionName);
+                if (status) {
+                    usedPartition = partitionName;
+                    m_Logger.debug("Formatted and mounted LittleFS on partition: %s", partitionName);
+                    break;
+                }
             }
         }
 #else
-        status = LittleFS.begin();
+        status = LittleFS.format();
+        if (status) {
+            status = LittleFS.begin();
+        }
 #endif
         if (!status) {
-            this->m_Logger.error("Could not mount LittleFS, aborting");
+            this->m_Logger.warn("Could not format or mount LittleFS, aborting");
             return;
         }
     }
@@ -229,45 +224,47 @@ void Configuration::formatFFat() {
     m_Logger.warn("Formatting LittleFS filesystem - ALL DATA WILL BE LOST!");
     
 #ifdef ESP32
-    // Try to format on common partition names
-    bool success = LittleFS.format("simplefs");
-    if (!success) {
-        success = LittleFS.format("ffat");
-    }
-    if (!success) {
-        success = LittleFS.format("spiffs");
-    }
-    if (!success) {
-        success = LittleFS.format("littlefs");
+    // Try to format each partition by attempting to mount it first, then formatting
+    bool success = false;
+    const char* partitionNames[] = {"simplefs", "ffat", "spiffs", "littlefs"};
+    const char* usedPartition = nullptr;
+    
+    for (const char* partitionName : partitionNames) {
+        // Try to begin with this partition (sets up for format)
+        if (LittleFS.begin(false, partitionName)) {
+            // Already mounted, format it
+            if (LittleFS.format()) {
+                // Remount after format
+                if (LittleFS.begin(false, partitionName)) {
+                    usedPartition = partitionName;
+                    success = true;
+                    m_Logger.debug("Formatted and remounted LittleFS on partition: %s", partitionName);
+                    break;
+                }
+            }
+        } else {
+            // Mount failed, try format anyway (works on last attempted partition)
+            if (LittleFS.format()) {
+                // Try to mount after format
+                if (LittleFS.begin(false, partitionName)) {
+                    usedPartition = partitionName;
+                    success = true;
+                    m_Logger.debug("Formatted and mounted LittleFS on partition: %s", partitionName);
+                    break;
+                }
+            }
+        }
     }
 #else
     bool success = LittleFS.format();
+    if (success) {
+        success = LittleFS.begin();
+    }
 #endif
     if (!success) {
         m_Logger.error("LittleFS format failed!");
         return;
     }
-    
-#ifdef ESP32
-    // Try to remount after format
-    bool mounted = false;
-    const char* partitionNames[] = {"simplefs", "ffat", "spiffs", "littlefs"};
-    for (const char* partitionName : partitionNames) {
-        mounted = LittleFS.begin(false, partitionName);
-        if (mounted) {
-            break;
-        }
-    }
-    if (!mounted) {
-        m_Logger.error("Failed to remount LittleFS after format!");
-        return;
-    }
-#else
-    if (!LittleFS.begin()) {
-        m_Logger.error("Failed to remount LittleFS after format!");
-        return;
-    }
-#endif
     
     m_Logger.info("LittleFS formatted successfully. All data cleared.");
     m_Logger.info("  - Configuration files deleted");
