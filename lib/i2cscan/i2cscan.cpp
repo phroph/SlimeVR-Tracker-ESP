@@ -48,6 +48,9 @@ namespace I2CSCAN {
 
 			if (currentSCL < validPorts.size()) {
 				Wire.begin((int)validPorts[currentSDA], (int)validPorts[currentSCL]); //NOLINT
+#ifdef ESP32
+				Wire.setTimeOut(150);
+#endif
 				return true;
 			}
 
@@ -60,13 +63,19 @@ namespace I2CSCAN {
 				}
 	#ifdef ESP32
 				Wire.end();
-	#endif
 				Wire.begin(static_cast<int>(PIN_IMU_SDA), static_cast<int>(PIN_IMU_SCL));
+				Wire.setTimeOut(150);
+	#else
+				Wire.begin(static_cast<int>(PIN_IMU_SDA), static_cast<int>(PIN_IMU_SCL));
+	#endif
 				scanState = ScanState::DONE;
 				return false;
 			}
 
 			Wire.begin((int)validPorts[currentSDA], (int)validPorts[currentSCL]);
+#ifdef ESP32
+			Wire.setTimeOut(150);
+#endif
 			return true;
 		}
 		template <uint8_t size1, uint8_t size2>
@@ -114,6 +123,14 @@ namespace I2CSCAN {
         currentAddress = 1;
 		txFails = 0;
         scanState = ScanState::SCANNING;
+        
+        // Initialize I2C bus for the first port pair
+        if (validPorts.size() > 1) {
+            Wire.begin((int)validPorts[currentSDA], (int)validPorts[currentSCL]);
+#ifdef ESP32
+            Wire.setTimeOut(150);
+#endif
+        }
 	}
 
     void update() {
@@ -121,11 +138,17 @@ namespace I2CSCAN {
             return;
         }
 
+        // Ensure I2C bus is initialized before use
+        // Reinitialize if we just wrapped around addresses or if bus was ended
+        if (currentAddress == 1) {
 #ifdef ESP32
-		if (currentAddress == 1) {
             Wire.end();
-		}
+            Wire.begin((int)validPorts[currentSDA], (int)validPorts[currentSCL]);
+            Wire.setTimeOut(150);
+#else
+            Wire.begin((int)validPorts[currentSDA], (int)validPorts[currentSCL]);
 #endif
+        }
 
         Wire.beginTransmission(currentAddress);
         const uint8_t error = Wire.endTransmission();
@@ -159,11 +182,15 @@ namespace I2CSCAN {
     }
 
     bool hasDevOnBus(uint8_t addr) {
+        // Safety check: ensure I2C bus is not in an invalid state
+        // If Wire is not properly initialized, this will fail gracefully
         byte error;
 #if ESP32C3
         int retries = 2;
         do {
 #endif
+            // Flush any pending transactions before starting a new one
+            Wire.flush();
             Wire.beginTransmission(addr);
             error = Wire.endTransmission(); // The return value of endTransmission is used to determine if a device is present
 #if ESP32C3
