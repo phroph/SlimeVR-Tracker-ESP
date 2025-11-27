@@ -196,8 +196,23 @@ namespace I2CSCAN {
 #endif
             // Flush any pending transactions before starting a new one
             Wire.flush();
+            
+            // Small delay to ensure bus is ready (especially after swapI2C)
+            delayMicroseconds(100);
+            
             Wire.beginTransmission(addr);
             error = Wire.endTransmission(); // The return value of endTransmission is used to determine if a device is present
+            
+            // Check for NULL TX buffer pointer error (ESP_ERR_INVALID_STATE)
+            // This can happen if Wire.end() was called during an active transaction
+            if (error == 4) {
+                // Error 4 = ESP_ERR_INVALID_STATE or other bus error
+                // Wait a bit and retry once
+                delayMicroseconds(500);
+                Wire.flush();
+                Wire.beginTransmission(addr);
+                error = Wire.endTransmission();
+            }
 #if ESP32C3
         }
         while (error != 0 && retries--);

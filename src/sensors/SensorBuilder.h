@@ -207,6 +207,11 @@ public:
 	) {
 		sensorInterface->init();
 		sensorInterface->swapIn();
+		
+		// Small delay to ensure I2C bus is stable after swapIn()
+		// This is critical to prevent NULL TX buffer pointer errors
+		// when hasSensorOnBus() is called immediately after
+		delayMicroseconds(500);
 
 		return checkSensorsPresent<
 			AccessInterface,
@@ -324,6 +329,11 @@ public:
 		// Init I2C bus for each sensor upon startup
 		sensorDef.sensorInterface->init();
 		sensorDef.sensorInterface->swapIn();
+		
+		// Small delay to ensure I2C bus is stable after swapIn()
+		// This is critical to prevent NULL TX buffer pointer errors
+		// when hasSensorOnBus() is called immediately after
+		delayMicroseconds(500);
 
 		if (!sensorDef.imuInterface.hasSensorOnBus()) {
 			if (!sensorDef.optional) {

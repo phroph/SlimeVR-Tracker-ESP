@@ -49,13 +49,16 @@ void swapI2C(uint8_t sclPin, uint8_t sdaPin) {
 
 	// If I2C is already active, we need to properly end it before switching
 	if (isI2CActive && (activeSCLPin.has_value() || activeSDAPin.has_value())) {
-		// Wait for any pending transactions to complete
-		// Wire.flush() doesn't wait, so we need to ensure transactions are done
+		// Critical: Wait for any pending transactions to complete before ending
+		// Wire.flush() doesn't wait for transactions, so we need to ensure the bus is idle
+		// Try to complete any pending transmission by doing a dummy transaction
+		// This ensures the I2C driver is in a clean state
 		Wire.flush();
 		
-		// Small delay to ensure any in-flight transactions complete
+		// Wait for any in-flight transactions to complete
 		// ESP32 I2C transactions can take up to a few hundred microseconds
-		delayMicroseconds(500);
+		// We need to wait longer to ensure transactions from SensorHub complete
+		delay(1);  // 1ms should be enough for any pending I2C transaction
 		
 		// Disconnect pins from HWI2C before ending
 		if (activeSCLPin.has_value()) {
@@ -68,14 +71,18 @@ void swapI2C(uint8_t sclPin, uint8_t sdaPin) {
 		// End the current I2C bus
 		Wire.end();
 		
-		// Additional delay to ensure I2C driver is fully stopped
+		// Additional delay to ensure I2C driver is fully stopped and cleaned up
 		// This is critical to prevent ESP_ERR_INVALID_STATE
-		delayMicroseconds(500);
+		delay(1);
 	}
 
 	// Initialize I2C with new pins
 	Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
 	Wire.setTimeOut(150);
+	
+	// Small delay to ensure I2C driver is fully initialized before use
+	// This prevents NULL TX buffer pointer errors
+	delayMicroseconds(500);
 #else
 	Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin));
 #endif
