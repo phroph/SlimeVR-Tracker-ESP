@@ -60,12 +60,19 @@ TPSCounter tpsCounter;
 
 void setup() {
 	Serial.begin(serialBaudRate);
-	globalTimer = timer_create_default();
-	delay(1000);
 
+	while(!Serial)
+	{
+		delay(10);
+	}
+	delay(1000);
+	
+	Serial.println("=== SlimeVR Boot ===");
+	Serial.println("Serial initialized successfully");
+	Serial.flush(); // Force flush to ensure output is sent
 	Serial.println();
-	Serial.println();
-	Serial.println();
+	
+	globalTimer = timer_create_default();
 
 	logger.info("SlimeVR v" FIRMWARE_VERSION " starting up...");
 
