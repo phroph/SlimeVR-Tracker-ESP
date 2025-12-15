@@ -25,6 +25,7 @@
 
 #include <PinInterface.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 
@@ -34,6 +35,7 @@
 #include "../sensor.h"
 #include "../../mag_calibration.h"
 #include "../../mag_calibration_manager.h"
+#include "../../power/PowerProfile.h"
 #include "TempGradientCalculator.h"
 #include "imuconsts.h"
 #include "motionprocessing/types.h"
@@ -55,7 +57,15 @@ class SoftFusionSensor : public Sensor {
 	
 	// Store last calibrated mag reading for telemetry
 	float m_lastMagCal[3] = {0.0f, 0.0f, 0.0f};
+	// Store last *raw* mag reading in body frame for sidecar telemetry /
+	// calibration, to avoid any conflation with VQF corrections.
+	float m_lastMagRaw[3] = {0.0f, 0.0f, 0.0f};
 	bool m_hasMagData = false;
+	// Track whether a magnetometer was actually detected on this sensor. Some
+	// board variants wire LSM6DSV without an external mag; in that case we
+	// should never attempt aux reads in the motion loop to avoid sensor hub
+	// timeout spam.
+	bool m_magPresent = false;
 
 	bool detected() const {
 		const auto value
@@ -158,15 +168,85 @@ class SoftFusionSensor : public Sensor {
 
 	void processMagSample() {
 		if constexpr (Consts::SupportsMags) {
-			// Read raw mag data from sensor hub (only available for LSM6DSV)
-			int16_t magRaw[3] = {0, 0, 0};
-			if constexpr (requires { m_sensor.readMagFromSensorHub(magRaw); }) {
-				if (!m_sensor.readMagFromSensorHub(magRaw)) {
-					return;  // No new data or error
-				}
-			} else {
-				return;  // Sensor doesn't support readMagFromSensorHub
+			// Skip entirely if MagDriver did not find an attached magnetometer
+			// for this sensor instance.
+			if (!m_magPresent) {
+				return;
 			}
+			int16_t magRaw[3] = {0, 0, 0};
+
+			// When we're actively collecting calibration samples for the mag
+			// sidecar, we want to be absolutely certain we're looking at the
+			// QMC6309's true hardware output, not whatever the streaming sensor
+			// hub path might be doing on a given board revision. In that mode,
+			// prefer direct aux register reads when available.
+			bool inCalMode = false;
+#if ENABLE_MAG_CALIBRATION_MODE
+			using SlimeVR::MagCalibration::MagCalState;
+			if (SlimeVR::MagCalibration::g_magCalManager.getState()
+				== MagCalState::COLLECTING) {
+				inCalMode = true;
+			}
+#endif
+
+			if (inCalMode && requires { m_sensor.readAux(uint8_t{0}); }) {
+				uint8_t xL = m_sensor.readAux(0x01);
+				uint8_t xH = m_sensor.readAux(0x02);
+				uint8_t yL = m_sensor.readAux(0x03);
+				uint8_t yH = m_sensor.readAux(0x04);
+				uint8_t zL = m_sensor.readAux(0x05);
+				uint8_t zH = m_sensor.readAux(0x06);
+				magRaw[0] = static_cast<int16_t>((xH << 8) | xL);
+				magRaw[1] = static_cast<int16_t>((yH << 8) | yL);
+				magRaw[2] = static_cast<int16_t>((zH << 8) | zL);
+			} else {
+				// Normal tracking mode: favour the LSM6DSV sensor hub streaming
+				// path when it's implemented, with a direct-aux fallback for
+				// other IMUs.
+				if constexpr (requires { m_sensor.readMagFromSensorHub(magRaw); }) {
+					if (!m_sensor.readMagFromSensorHub(magRaw)) {
+						return;  // No new data or error
+					}
+				} else if constexpr (requires { m_sensor.readAux(uint8_t{0}); }) {
+					uint8_t xL = m_sensor.readAux(0x01);
+					uint8_t xH = m_sensor.readAux(0x02);
+					uint8_t yL = m_sensor.readAux(0x03);
+					uint8_t yH = m_sensor.readAux(0x04);
+					uint8_t zL = m_sensor.readAux(0x05);
+					uint8_t zH = m_sensor.readAux(0x06);
+					magRaw[0] = static_cast<int16_t>((xH << 8) | xL);
+					magRaw[1] = static_cast<int16_t>((yH << 8) | yL);
+					magRaw[2] = static_cast<int16_t>((zH << 8) | zL);
+				} else {
+					return;  // Sensor doesn't support any mag read path
+				}
+			}
+
+#ifdef DEBUG_MAG_RAW
+			// Periodic debug logging of raw magnetometer samples. To avoid
+			// impacting FIFO timing, this is heavily rate-limited and only
+			// performs a direct status read when aux access is available.
+			static uint32_t dbgCount = 0;
+			if ((dbgCount++ % 20u) == 0u) {
+				if constexpr (requires { m_sensor.readAux(uint8_t{0}); }) {
+					uint8_t qmcStatus = m_sensor.readAux(0x09);  // Status (DRDY, OVFL, etc.)
+					m_Logger.info(
+						"MAGDBG: status=0x%02x raw=(%d,%d,%d)",
+						static_cast<unsigned int>(qmcStatus),
+						static_cast<int>(magRaw[0]),
+						static_cast<int>(magRaw[1]),
+						static_cast<int>(magRaw[2])
+					);
+				} else {
+					m_Logger.info(
+						"MAGDBG: raw=(%d,%d,%d)",
+						static_cast<int>(magRaw[0]),
+						static_cast<int>(magRaw[1]),
+						static_cast<int>(magRaw[2])
+					);
+				}
+			}
+#endif
 
 			// Convert to float (sensor frame)
 			float m_sens[3] = {
@@ -185,12 +265,21 @@ class SoftFusionSensor : public Sensor {
 			const auto& magCal = SlimeVR::MagCalibration::g_magCalManager.getCalibration();
 			SlimeVR::MagCalibration::magCalApply(magCal, m_body_raw, m_body_cal);
 
-			// Store calibrated mag for telemetry
+			// Store both raw and calibrated mag. Raw is used for sidecar telemetry
+			// and calibration; calibrated is used locally for VQF / IMU fusion.
+			memcpy(m_lastMagRaw, m_body_raw, sizeof(m_lastMagRaw));
 			memcpy(m_lastMagCal, m_body_cal, sizeof(m_lastMagCal));
 			m_hasMagData = true;
 
-			// During calibration mode, send samples to sidecar (queued, non-blocking)
-			SlimeVR::MagCalibration::g_magCalManager.feedMagSample(m_body_raw[0], m_body_raw[1], m_body_raw[2]);
+			// During calibration mode, send *raw* body-frame magnetometer samples
+			// to the sidecar (queued, non-blocking). This ensures the calibration
+			// process sees the actual hardware measurements, without any fusion
+			// or soft-iron correction applied.
+			SlimeVR::MagCalibration::g_magCalManager.feedMagSample(
+				m_body_raw[0],
+				m_body_raw[1],
+				m_body_raw[2]
+			);
 
 			// Feed calibrated mag data to VQF
 			m_fusion.updateMag(m_body_cal, SensorType::MagTs);
@@ -276,40 +365,49 @@ public:
 			tempGradientCalculator.tick();
 		}
 
-		constexpr uint32_t targetPollIntervalMicros = 6000;
+		// Decouple FIFO/fusion update rate from network send rate:
+		// - We should read/drain the FIFO frequently enough to avoid overruns at high ODR.
+		// - We only publish/send fused quaternions at the chosen send interval.
+		constexpr uint32_t targetPollIntervalMicros = 2000;  // ~500 Hz FIFO service
 		uint32_t elapsed = now - m_lastPollTime;
 		if (elapsed >= targetPollIntervalMicros) {
 			m_lastPollTime = now - (elapsed - targetPollIntervalMicros);
+
+			m_sensor.bulkRead({
+				[&](const auto sample[3], float AccTs) { processAccelSample(sample, AccTs); },
+				[&](const auto sample[3], float GyrTs) { processGyroSample(sample, GyrTs); },
+				[&](int16_t sample, float TempTs) { processTempSample(sample, TempTs); },
+			});
+
+			if (m_fusion.isUpdated()) {
+				hadData = true;
+				m_lastRotationUpdateMillis = millis();
+			} else {
+				checkSensorTimeout();
+			}
 		}
 
-		// send new fusion values when time is up
+		// Send new fusion values when time is up (rate-limited, configurable).
 		now = micros();
-		constexpr float maxSendRateHz = 100.0f;
-		constexpr uint32_t sendInterval = 1.0f / maxSendRateHz * 1e6f;
+		constexpr float defaultMaxSendRateHz = 100.0f;
+		float maxSendRateHz = defaultMaxSendRateHz;
+		if (SlimeVR::Power::g_maxRotationSendRateHz > 0.0f) {
+			maxSendRateHz = std::min(maxSendRateHz, SlimeVR::Power::g_maxRotationSendRateHz);
+		}
+		if (maxSendRateHz < 1.0f) {
+			maxSendRateHz = 1.0f;
+		}
+		const uint32_t sendInterval = static_cast<uint32_t>(1.0f / maxSendRateHz * 1e6f);
 		elapsed = now - m_lastRotationPacketSent;
 		if (elapsed >= sendInterval) {
-			m_sensor.bulkRead({
-				[&](const auto sample[3], float AccTs) {
-					processAccelSample(sample, AccTs);
-				},
-				[&](const auto sample[3], float GyrTs) {
-					processGyroSample(sample, GyrTs);
-				},
-				[&](int16_t sample, float TempTs) {
-					processTempSample(sample, TempTs);
-				},
-			});
+			// Only publish when fusion has actually advanced since the last publish.
 			if (!m_fusion.isUpdated()) {
-				checkSensorTimeout();
 				return;
 			}
-			hadData = true;
-			m_lastRotationUpdateMillis = millis();
-			m_fusion.clearUpdated();
 
 			m_lastRotationPacketSent = now - (elapsed - sendInterval);
 
-			// Process magnetometer data if available
+			// Process magnetometer data if available (uses last mag sample for this frame).
 			if constexpr (Consts::SupportsMags) {
 				processMagSample();
 			}
@@ -337,9 +435,13 @@ public:
 						magQuality = 0.0f;
 					}
 
-					// Send raw quaternion (before yaw correction) and calibrated mag
+					// Send raw quaternion (before yaw correction) and *raw* body-frame
+					// magnetometer samples to the sidecar. This keeps Magneto / yaw
+					// consensus completely unaware of any internal VQF corrections or
+					// our own mag calibration matrix, preventing double-correction of
+					// heading over time.
 					SlimeVR::MagCalibration::g_magCalManager.sendTelemetry(
-						q_vqf_array, m_lastMagCal, magQuality);
+						q_vqf_array, m_lastMagRaw, magQuality);
 				}
 			}
 
@@ -353,6 +455,30 @@ public:
 
 			setFusedRotation(q_final);
 			setAcceleration(m_fusion.getLinearAccVec());
+			m_fusion.clearUpdated();
+
+#if defined(DEBUG_SENSOR)
+			// Low-rate fusion diagnostics useful for high-motion tuning.
+			// Kept behind DEBUG_SENSOR and rate-limited to avoid perturbing timing.
+			{
+				static uint32_t lastVqfLogMs = 0;
+				uint32_t nowMs = millis();
+				if (nowMs - lastVqfLogMs >= 2000) {
+					lastVqfLogMs = nowMs;
+					sensor_real_t restDev[2]{0, 0};
+					m_fusion.getRelativeRestDeviations(restDev);
+					m_Logger.info(
+						"VQF: rest=%u restDev(gyr=%.2f acc=%.2f) magDist=%u magRef(norm=%.2f dip=%.2f)",
+						static_cast<unsigned int>(m_fusion.getRestDetected() ? 1u : 0u),
+						static_cast<double>(restDev[0]),
+						static_cast<double>(restDev[1]),
+						static_cast<unsigned int>(m_fusion.getMagDistDetected() ? 1u : 0u),
+						static_cast<double>(m_fusion.getMagRefNorm()),
+						static_cast<double>(m_fusion.getMagRefDip())
+					);
+				}
+			}
+#endif
 			optimistic_yield(100);
 		}
 
@@ -418,11 +544,14 @@ public:
 		calibrator.checkStartupCalibration();
 
 		if constexpr (Consts::SupportsMags) {
-			magDriver.init(
+			bool magDetected = magDriver.init(
 				SoftFusion::MagInterface{
 					.readByte
 					= [&](uint8_t address) { return m_sensor.readAux(address); },
-					.writeByte = [&](uint8_t address, uint8_t value) { m_sensor.writeAux(address, value); },
+					.writeByte
+					= [&](uint8_t address, uint8_t value) {
+						  m_sensor.writeAux(address, value);
+					  },
 					.setDeviceId
 					= [&](uint8_t deviceId) { m_sensor.setAuxId(deviceId); },
 					.startPolling
@@ -433,15 +562,31 @@ public:
 				Consts::Supports9ByteMag
 			);
 
-			// Dump diagnostics after magnetometer detection to show actual configured state
-			// Check if the sensor type has a dumpDiagnostics method using SFINAE
-			// This will only compile and call dumpDiagnostics() if the method exists
-			if constexpr (requires { m_sensor.dumpDiagnostics(); }) {
-				m_sensor.dumpDiagnostics();
-			}
+			m_magPresent = magDetected;
 
-			if (toggles.getToggle(SensorToggles::MagEnabled)) {
+			bool magEnabled = toggles.getToggle(SensorToggles::MagEnabled);
+			// Log the exact two-bit state that SlimeVR Server derives MagnetometerStatus from:
+			// - magSupported (bit 1)
+			// - magEnabled   (bit 0)
+			// See SlimeVR-Server: `SensorConfig.magStatus`.
+			m_Logger.info(
+				"Mag status (server bits): supported=%u enabled=%u",
+				static_cast<unsigned int>(magDetected ? 1u : 0u),
+				static_cast<unsigned int>((magDetected && magEnabled) ? 1u : 0u)
+			);
+			if (magDetected && magEnabled) {
 				magDriver.startPolling();
+				m_Logger.info("Magnetometer %s enabled", magDriver.getAttachedMagName());
+			} else if (magDetected && !magEnabled) {
+				// Important for diagnosing server-side yaw behavior (StayAligned):
+				// the server will only skip yaw correction when it thinks the
+				// magnetometer is ENABLED, not merely present.
+				m_Logger.info(
+					"Magnetometer %s detected but disabled by toggle",
+					magDriver.getAttachedMagName()
+				);
+			} else if (!magDetected) {
+				m_Logger.info("No magnetometer detected");
 			}
 		}
 
@@ -461,6 +606,25 @@ public:
 	}
 
 	[[nodiscard]] bool isFlagSupported(SensorToggles toggle) const final {
+		// Advertise magnetometer support to the server when this IMU actually
+		// has an auxiliary mag interface AND a magnetometer was detected. This allows
+		// SlimeVR Server to:
+		//  - Show "Magnetometer: Supported" in the UI
+		//  - Send SetConfigFlag(MagEnabled) to enable/disable mag usage
+		//
+		// IMPORTANT: StayAligned on the server *skips yaw correction* when it thinks
+		// the tracker has an enabled magnetometer. If we report "supported" when no
+		// magnetometer is physically present, the server may incorrectly skip yaw
+		// correction and tracking can drift/overshoot. Therefore we only report
+		// magnetometer support when a magnetometer was actually detected at runtime.
+		if (toggle == SensorToggles::MagEnabled) {
+			if constexpr (Consts::SupportsMags) {
+				return m_magPresent;
+			} else {
+				return false;
+			}
+		}
+
 		return toggle == SensorToggles::CalibrationEnabled
 			|| toggle == SensorToggles::TempGradientCalibrationEnabled;
 	}

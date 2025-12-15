@@ -91,8 +91,15 @@ public:
 	// Reset calibration (for re-calibration)
 	void resetCalibration();
 
+	// Manual control helpers (e.g., from serial commands)
+	// Start a new calibration run immediately (equivalent to long-press).
+	void startCalibrationManual();
+	// Finish sample collection immediately (equivalent to short-press).
+	void finishCalibrationManual();
+
 private:
 	// UDP communication
+	void sendHello();  // Send hello message to register with sidecar
 	void sendCalibSample(float mx, float my, float mz, uint32_t timestamp);
 	void sendCalibDone();
 	void sendTelemetryPacket(const float quat[4], const float magCal[3], float magQuality, uint32_t timestamp);
@@ -108,6 +115,10 @@ private:
 	// Helper: check if button is held on boot
 	bool isMagCalButtonHeldOnBoot() const;
 
+	// Runtime button handling (non-blocking) for starting / stopping
+	// magnetometer calibration using a dedicated GPIO button.
+	void updateButton();
+
 	// Helper: get tracker ID string
 	const char* getTrackerId() const;
 
@@ -118,12 +129,23 @@ private:
 	IPAddress m_sidecarIP;
 	uint16_t m_sidecarPort = 7778;
 	bool m_sidecarIPConfigured = false;  // Track if explicitly configured
+	bool m_helloSent = false;  // Track if hello message has been sent to sidecar
+
+	// When set, all network interactions with the mag sidecar are disabled to
+	// protect the timing-critical IMU/FIFO loop. This is triggered
+	// automatically if we detect that UDP calls are taking too long.
+	bool m_networkDisabled = false;
 
 	// Calibration collection state
 	uint32_t m_collectionStartTime = 0;
 	uint32_t m_samplesSent = 0;
 	uint32_t m_lastSampleTime = 0;
+	// For now we target a fixed 1000-sample dataset. Magneto currently has
+	// internal limits around ~1k samples per tracker; sending substantially
+	// more can cause it to downsample/clip the set and report fewer samples
+	// than the tracker thinks it sent.
 	static constexpr uint32_t MIN_SAMPLES = 1000;
+	static constexpr uint32_t MAX_SAMPLES = 1000;
 	static constexpr uint32_t COLLECTION_TIMEOUT_MS = 90000;  // 90 seconds
 	static constexpr uint32_t RESULT_TIMEOUT_MS = 10000;      // 10 seconds
 	static constexpr uint32_t SAMPLE_INTERVAL_MS = 20;         // 50 Hz
@@ -135,6 +157,18 @@ private:
 
 	// Tracker ID (will be set from configuration or MAC address)
 	char m_trackerId[32];
+
+#ifdef MAG_CAL_BUTTON_PIN
+	// Button handling state
+	bool m_buttonInitialized = false;
+	bool m_buttonLastLevel = true;  // INPUT_PULLUP default: HIGH = released
+	uint32_t m_buttonLastChangeMs = 0;
+	uint32_t m_buttonPressStartMs = 0;
+
+	static constexpr uint32_t BUTTON_DEBOUNCE_MS = 50;
+	static constexpr uint32_t BUTTON_LONG_PRESS_MS = 2000;   // 2s: start cal
+	static constexpr uint32_t BUTTON_SHORT_PRESS_MS = 200;   // 0.2s: finish
+#endif
 
 	// Queue structures for deferred network sending (non-blocking IMU path)
 	struct QueuedCalibSample {

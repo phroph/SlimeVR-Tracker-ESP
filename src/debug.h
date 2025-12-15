@@ -41,6 +41,14 @@
 
 #define EXT_SERIAL_COMMANDS false  // Set to true to enable extra serial debug commands
 
+// Network / radio architecture selection (for future-proofing).
+// Today this project uses direct WiFi UDP to SlimeVR-Server.
+// The intent is to keep higher-level code ready for future transports
+// (e.g., BLE/proprietary 2.4GHz to a base-station) without rewriting everything.
+#define TRANSPORT_UDP_WIFI 0
+#define TRANSPORT_RESERVED 1
+#define TRANSPORT_TYPE TRANSPORT_UDP_WIFI
+
 // Debug information
 
 #define LOG_LEVEL LOG_LEVEL_DEBUG

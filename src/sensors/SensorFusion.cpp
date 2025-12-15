@@ -133,4 +133,19 @@ bool SensorFusion::getRestDetected() const { return vqf.getRestDetected(); }
 
 bool SensorFusion::getMagDistDetected() const { return vqf.getMagDistDetected(); }
 
+void SensorFusion::getRelativeRestDeviations(sensor_real_t out[2]) const {
+	vqf_real_t tmp[2]{0, 0};
+	vqf.getRelativeRestDeviations(tmp);
+	out[0] = static_cast<sensor_real_t>(tmp[0]);
+	out[1] = static_cast<sensor_real_t>(tmp[1]);
+}
+
+sensor_real_t SensorFusion::getMagRefNorm() const {
+	return static_cast<sensor_real_t>(vqf.getMagRefNorm());
+}
+
+sensor_real_t SensorFusion::getMagRefDip() const {
+	return static_cast<sensor_real_t>(vqf.getMagRefDip());
+}
+
 }  // namespace SlimeVR::Sensors

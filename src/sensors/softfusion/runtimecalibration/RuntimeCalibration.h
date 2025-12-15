@@ -307,7 +307,11 @@ private:
 		configuration.setSensor(sensorId, calibration);
 		configuration.save();
 
-		ledManager.blink(100, CRGB::HTMLColorCode::Pink);
+		// One-shot success indicator routed through centralized LED status system.
+		statusManager.pushLedEvent(SlimeVR::Status::LEDStatus::CALIBRATION_SAVED, 200);
+		// Give the LED manager a chance to render immediately even if we're in a
+		// calibration-heavy code path.
+		ledManager.update();
 	}
 
 	enum class CalibrationPrintFlags {

@@ -35,15 +35,23 @@ namespace SlimeVR::Sensors::SoftFusion::Drivers {
 
 // Driver uses acceleration range at 4g
 // and gyroscope range at 1000dps
-// Gyroscope ODR = 240Hz, accel ODR = 120Hz
+//
+// ODR profiles:
+// - Balanced: Gyro 480 Hz, Accel 240 Hz
+// - Max:      Gyro 960 Hz, Accel 480 Hz
+//
+// Enable max profile by compiling with -DLSM6DSV_PROFILE_MAX=1
+#ifndef LSM6DSV_PROFILE_MAX
+#define LSM6DSV_PROFILE_MAX 0
+#endif
 
 struct LSM6DSV : LSM6DSOutputHandler {
 	static constexpr uint8_t Address = 0x6a;
 	static constexpr auto Name = "LSM6DSV";
 	static constexpr auto Type = SensorTypeID::LSM6DSV;
 
-	static constexpr float GyrFreq = 240;
-	static constexpr float AccFreq = 120;
+	static constexpr float GyrFreq = LSM6DSV_PROFILE_MAX ? 960.0f : 480.0f;
+	static constexpr float AccFreq = LSM6DSV_PROFILE_MAX ? 480.0f : 240.0f;
 	static constexpr float MagFreq = 120;
 	static constexpr float TempFreq = 60;
 
@@ -53,14 +61,24 @@ struct LSM6DSV : LSM6DSOutputHandler {
 	static constexpr float TempTs = 1.0 / TempFreq;
 
 	static constexpr float GyroSensitivity = 1000 / 35.0f;
-	static constexpr float AccelSensitivity = 1000 / 0.244f;
+	// Datasheet: ±4 g sensitivity is 0.122 mg/LSB.
+	static constexpr float AccelSensitivity = 1000 / 0.122f;
 
 	static constexpr float TemperatureBias = 25.0f;
 	static constexpr float TemperatureSensitivity = 256.0f;
 
 	static constexpr float TemperatureZROChange = 16.667f;
 
-	static constexpr VQFParams SensorVQFParams{};
+	// LSM6DSV-specific VQF baseline tuning for high-motion VR:
+	// - Slightly faster accel inclination correction than VQF defaults.
+	// - Rest detection thresholds tuned to avoid false-rest during small motion.
+	static constexpr VQFParams SensorVQFParams = VQFParams{
+		.tauAcc = 2.0f,
+		.tauMag = 6.0f,
+		.restMinT = 2.0f,
+		.restThGyr = 0.6f,
+		.restThAcc = 0.06f,
+	};
 
 	// I2C Master configuration bit masks
 	static constexpr uint8_t MASTER_CFG_RST_MASTER   = 1u << 7;
@@ -81,11 +99,14 @@ struct LSM6DSV : LSM6DSOutputHandler {
 		};
 		struct Ctrl1XLODR {
 			static constexpr uint8_t reg = 0x10;
-			static constexpr uint8_t value = (0b0010110);  // 120Hz, HAODR
+			// ODR table is selected by HAODRCFG. We encode accel ODR in the low nibble.
+			// 0b0111 = 240 Hz, 0b1000 = 480 Hz (for HAODR table 1)
+			static constexpr uint8_t value = LSM6DSV_PROFILE_MAX ? (0b0011000) : (0b0010111);
 		};
 		struct Ctrl2GODR {
 			static constexpr uint8_t reg = 0x11;
-			static constexpr uint8_t value = (0b0010111);  // 240Hz, HAODR
+			// 0b1000 = 480 Hz, 0b1001 = 960 Hz (for HAODR table 1)
+			static constexpr uint8_t value = LSM6DSV_PROFILE_MAX ? (0b0011001) : (0b0011000);
 		};
 		struct Ctrl3C {
 			static constexpr uint8_t reg = 0x12;
@@ -103,8 +124,10 @@ struct LSM6DSV : LSM6DSOutputHandler {
 		};
 		struct FifoCtrl3BDR {
 			static constexpr uint8_t reg = 0x09;
-			static constexpr uint8_t value
-				= 0b01110110;  // Gyroscope batched into FIFO at 240Hz, Accel at 120Hz
+			// Upper nibble: gyro BDR, lower nibble: accel BDR
+			// Balanced: gyro 480 (0b1000), accel 240 (0b0111) => 0x87
+			// Max:      gyro 960 (0b1001), accel 480 (0b1000) => 0x98
+			static constexpr uint8_t value = LSM6DSV_PROFILE_MAX ? 0b10011000 : 0b10000111;
 		};
 	struct FifoCtrl4Mode {
 		static constexpr uint8_t reg = 0x0a;
@@ -166,68 +189,6 @@ struct LSM6DSV : LSM6DSOutputHandler {
 		// perform initialization step
 		m_RegisterInterface.writeReg(Regs::Ctrl3C::reg, Regs::Ctrl3C::valueSwReset);
 		delay(20);
-		
-		// Configure PIN_CTRL (0x02) - ensure bit 0 is cleared (must be 0)
-		uint8_t pinCtrl = m_RegisterInterface.readReg(0x02);
-		if ((pinCtrl & 0x01) != 0) {
-			m_Logger.warn("initialize: PIN_CTRL bit 0 is set (should be 0), clearing");
-			pinCtrl &= ~0x01;
-			m_RegisterInterface.writeReg(0x02, pinCtrl);
-			delay(5);
-			uint8_t verifyPinCtrl = m_RegisterInterface.readReg(0x02);
-			m_Logger.debug("initialize: Wrote PIN_CTRL=0x%02x, read back=0x%02x", pinCtrl, verifyPinCtrl);
-		}
-		
-		// Configure IF_CFG (0x03) to ensure I2C is enabled and we're in Mode 2
-		// Mode 2 = I2C slave interface + master I2C interface for sensor hub
-		// Bit 7: SHUB_PU_EN (0 = internal pull-up on auxiliary I²C line disabled, 1 = enabled)
-		//        According to datasheet: "Enables master I²C pull-up" on MSDA/MSCL pins
-		//        We're enabling this to provide additional pull-up strength on the auxiliary I2C bus
-		//        Internal pull-ups are 30-50kΩ, external ones are 4.7kΩ
-		//        Combined resistance will be ~4.0-4.1kΩ, which is acceptable for I2C
-		// Bit 6: SDA_PU_EN (0 = SDA pin pull-up disconnected - we use external pull-ups)
-		// Bit 5: ASF_CTRL (0 = antispike filters managed by protocol)
-		// Bit 4: H_LACTIVE (0 = interrupt active high)
-		// Bit 3: PP_OD (0 = push-pull mode)
-		// Bit 2: SIM (0 = 4-wire SPI interface - not used in I2C mode)
-		// Bit 1: Reserved (must be 0)
-		// Bit 0: I2C_I3C_disable (0 = I2C and MIPI I3C interfaces enabled - CRITICAL!)
-		uint8_t ifCfg = m_RegisterInterface.readReg(0x03);
-		m_Logger.debug("initialize: Initial IF_CFG=0x%02x (I2C_I3C_disable=%d, SHUB_PU_EN=%d)", 
-			ifCfg, (ifCfg & 0x01), (ifCfg >> 7) & 0x01);
-		
-		// Check if I2C is disabled
-		if ((ifCfg & 0x01) != 0) {
-			m_Logger.error("initialize: I2C interface is disabled! IF_CFG=0x%02x", ifCfg);
-			// Clear I2C_I3C_disable bit to enable I2C
-			ifCfg &= ~0x01;
-		}
-		
-		// Enable SHUB_PU_EN (bit 7) to enable internal pull-ups on MSDA/MSCL
-		// This provides additional pull-up strength (30-50kΩ) in addition to external pull-ups (4.7kΩ)
-		if ((ifCfg & 0x80) == 0) {
-			m_Logger.info("initialize: Enabling SHUB_PU_EN (internal pull-ups on MSDA/MSCL)");
-			ifCfg |= 0x80;  // Set bit 7
-		} else {
-			m_Logger.debug("initialize: SHUB_PU_EN already enabled");
-		}
-		
-		// Write the updated IF_CFG register
-		m_RegisterInterface.writeReg(0x03, ifCfg);
-		delay(5);
-		uint8_t verifyIfCfg = m_RegisterInterface.readReg(0x03);
-		m_Logger.debug("initialize: Wrote IF_CFG=0x%02x, read back=0x%02x", ifCfg, verifyIfCfg);
-		
-		if (verifyIfCfg != ifCfg) {
-			m_Logger.error("initialize: IF_CFG write failed! Expected 0x%02x, got 0x%02x", ifCfg, verifyIfCfg);
-		} else {
-			m_Logger.info("initialize: IF_CFG configured successfully: SHUB_PU_EN=1, I2C enabled");
-		}
-		
-		// Enable sensor hub I2C master early, before enabling accelerometer/gyro
-		// This ensures the sensor hub is ready when accel/gyro start generating data-ready signals
-		enableAuxI2CMaster();
-		
 		m_RegisterInterface.writeReg(Regs::HAODRCFG::reg, Regs::HAODRCFG::value);
 		m_RegisterInterface.writeReg(Regs::Ctrl1XLODR::reg, Regs::Ctrl1XLODR::value);
 		m_RegisterInterface.writeReg(Regs::Ctrl2GODR::reg, Regs::Ctrl2GODR::value);
@@ -242,10 +203,15 @@ struct LSM6DSV : LSM6DSOutputHandler {
 			Regs::FifoCtrl4Mode::reg,
 			Regs::FifoCtrl4Mode::value
 		);
-		
-		// Don't dump diagnostics here - they'll be called after magnetometer detection
-		// to show the actual configured state
-		
+		m_Logger.info(
+			"LSM6DSV profile: %s (gyro=%.0fHz accel=%.0fHz) regs: CTRL1_XL=0x%02x CTRL2_G=0x%02x FIFO_CTRL3=0x%02x",
+			LSM6DSV_PROFILE_MAX ? "MAX" : "BALANCED",
+			GyrFreq,
+			AccFreq,
+			Regs::Ctrl1XLODR::value,
+			Regs::Ctrl2GODR::value,
+			Regs::FifoCtrl3BDR::value
+		);
 		return true;
 	}
 
@@ -547,7 +513,8 @@ private:
 			(1u << 3)); // reserved
 
 		// Enable WRITE_ONCE and MASTER_ON
-		cfg |= MASTER_CFG_WRITE_ONCE | MASTER_CFG_MASTER_ON;
+		// Also enable AUX sensors (bits 1:0). Without this, the sensor hub may never run.
+		cfg |= MASTER_CFG_WRITE_ONCE | MASTER_CFG_MASTER_ON | MASTER_CFG_AUX_SENS_ON;
 
         m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, cfg);
         delay(1);
@@ -575,6 +542,12 @@ private:
 
         switchToEmbeddedPage();
 
+        // Re-arm the sensor hub for a single transaction by setting
+        // WRITE_ONCE | MASTER_ON | AUX_SENS_ON while preserving existing config bits.
+        uint8_t masterCfg = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
+        masterCfg |= (MASTER_CFG_WRITE_ONCE | MASTER_CFG_MASTER_ON | MASTER_CFG_AUX_SENS_ON);
+        m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, masterCfg);
+
         // SLV0_ADD: bits 7-1 = 7-bit addr, bit 0 = 1 for read
         uint8_t slvAdd = (addr7 & 0x7F) << 1 | 0x01;
         m_RegisterInterface.writeReg(Regs::I2CMasterAddr::reg, slvAdd);
@@ -586,6 +559,13 @@ private:
         uint8_t slvCfg = (0b100u << 5) | (numBytes & 0x07u);
 
         m_RegisterInterface.writeReg(Regs::I2CMasterSlvConfig::reg, slvCfg);
+
+		// Kick configuration (some ST parts require START_CONFIG to latch SLV settings)
+		masterCfg = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
+		m_RegisterInterface.writeReg(
+			Regs::I2CMasterConfig::reg,
+			static_cast<uint8_t>(masterCfg | MASTER_CFG_START_CONFIG)
+		);
 
         switchToMainPage();
         return true;
@@ -600,6 +580,12 @@ private:
 
         switchToEmbeddedPage();
 
+        // Re-arm the sensor hub for a single transaction by setting
+        // WRITE_ONCE | MASTER_ON | AUX_SENS_ON while preserving existing config bits.
+        uint8_t masterCfg = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
+        masterCfg |= (MASTER_CFG_WRITE_ONCE | MASTER_CFG_MASTER_ON | MASTER_CFG_AUX_SENS_ON);
+        m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, masterCfg);
+
         // SLV0_ADD: bits 7-1 = addr, bit 0 = 0 (write)
         uint8_t slvAdd = (addr7 & 0x7F) << 1;
         m_RegisterInterface.writeReg(Regs::I2CMasterAddr::reg, slvAdd);
@@ -609,6 +595,13 @@ private:
         // SHUB_ODR = 120 Hz, Slave0_numop = 0 → write only
         uint8_t slvCfg = (0b100u << 5);
         m_RegisterInterface.writeReg(Regs::I2CMasterSlvConfig::reg, slvCfg);
+
+		// Kick configuration latch
+		masterCfg = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
+		m_RegisterInterface.writeReg(
+			Regs::I2CMasterConfig::reg,
+			static_cast<uint8_t>(masterCfg | MASTER_CFG_START_CONFIG)
+		);
 
         switchToMainPage();
         return true;
@@ -673,31 +666,35 @@ public:
         uint8_t rawData[6];
         m_RegisterInterface.readBytes(0x02, 6, rawData);
 
-        // QMC6309 data format: 16-bit little-endian, X LSB, X MSB, Y LSB, Y MSB, Z LSB, Z MSB
+        // QMC6309 data format: 16-bit little-endian
         mag[0] = (int16_t)((rawData[1] << 8) | rawData[0]);  // X
         mag[1] = (int16_t)((rawData[3] << 8) | rawData[2]);  // Y
         mag[2] = (int16_t)((rawData[5] << 8) | rawData[4]);  // Z
+
+#ifdef DEBUG_MAG_RAW
+        // Periodically log raw magnetometer data coming from the LSM6DSV
+        // sensor hub, so we can verify that the aux I2C + QMC6309 path is
+        // returning sane, varying values during calibration sweeps.
+        static uint32_t dbgCount = 0;
+        if ((dbgCount++ % 20u) == 0u) {
+            m_Logger.info("MAGHUB raw: x=%d y=%d z=%d", mag[0], mag[1], mag[2]);
+        }
+#endif
 
         return true;
     }
 
     void setAuxId(uint8_t deviceId) {
-        // deviceId is 7-bit address (e.g. QMC6309: 0x7C)
         aux7bitAddr_ = deviceId & 0x7F;
 
         if (!enableAuxI2CMaster()) {
-            m_Logger.error("setAuxId: failed to enable sensor hub master");
             return;
         }
 
         switchToEmbeddedPage();
         uint8_t slvAdd = (aux7bitAddr_ << 1); // default to write
         m_RegisterInterface.writeReg(Regs::I2CMasterAddr::reg, slvAdd);
-        uint8_t rb = m_RegisterInterface.readReg(Regs::I2CMasterAddr::reg);
         switchToMainPage();
-
-        m_Logger.info("setAuxId: 7-bit addr=0x%02x, SLV0_ADD=0x%02x (rb=0x%02x)",
-                      aux7bitAddr_, slvAdd, rb);
     }
 
     uint8_t readAux(uint8_t reg) {
@@ -730,28 +727,35 @@ public:
         // Leave master running but disable single-shot config
         m_RegisterInterface.writeReg(Regs::I2CMasterSlvConfig::reg, 0x00);
         switchToMainPage();
-
-        m_Logger.debug("readAux: 0x%02x -> 0x%02x", reg, value);
+		// Per-register aux reads can be extremely chatty when the magnetometer
+		// path is active (multiple registers per sample). To avoid log spam and
+		// timing pressure on the FIFO path, keep this disabled by default and
+		// only enable it for deep sensor-hub debugging.
+#ifdef DEBUG_AUX_IO_VERBOSE
+		m_Logger.debug("readAux: 0x%02x -> 0x%02x", reg, value);
+#endif
         return value;
     }
 
-    void writeAux(uint8_t reg, uint8_t value) {
+    // Returns true on success, false on sensor hub / I2C failure
+    bool writeAux(uint8_t reg, uint8_t value) {
         if (!sensorHubInitialized_ && !enableAuxI2CMaster()) {
-            return;
+            return false;
         }
 
         if (!configureSingleWrite(aux7bitAddr_, reg, value)) {
-            return;
+            return false;
         }
 
         uint8_t status = 0;
         if (!waitForSensorHub("writeAux", 20, status)) {
-            return;
+            return false;
         }
 
         if (status & 0x1E) {
             m_Logger.error("writeAux: NACK talking to 0x%02x reg 0x%02x (STATUS_MASTER=0x%02x)",
                            aux7bitAddr_, reg, status);
+            return false;
         }
 
         // Clear single-write config
@@ -760,6 +764,7 @@ public:
         switchToMainPage();
 
         m_Logger.debug("writeAux: 0x%02x = 0x%02x", reg, value);
+        return true;
     }
 
     void startAuxPolling(uint8_t dataReg, MagDataWidth dataWidth) {
@@ -767,27 +772,34 @@ public:
             return;
         }
         if (aux7bitAddr_ == 0) {
-            m_Logger.warn("startAuxPolling: aux7bitAddr_ not set");
             return;
         }
 
         switchToEmbeddedPage();
 
-        uint8_t slvAdd = (aux7bitAddr_ << 1) | 0x01; // read
+        // Disable MASTER_ON while we reconfigure
+        uint8_t masterConfig = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
+        m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, masterConfig & ~MASTER_CFG_MASTER_ON);
+        delay(1);
+
+        // Configure slave for continuous reads
+        uint8_t slvAdd = (aux7bitAddr_ << 1) | 0x01; // read mode
         m_RegisterInterface.writeReg(Regs::I2CMasterAddr::reg, slvAdd);
         m_RegisterInterface.writeReg(Regs::I2CMasterSubAddr::reg, dataReg);
 
-        // Magnetometer output is 6 bytes for QMC6309.
-        // For any future 9-byte mag, we'd need either a second slave or a different layout.
+        // Configure ODR and bytes to read
         uint8_t numBytes = (dataWidth == MagDataWidth::SixByte) ? 6u : 6u;
         if (numBytes > 7) numBytes = 7;
         uint8_t slvCfg = (0b100u << 5) | (numBytes & 0x07u); // 120 Hz, N bytes
-
         m_RegisterInterface.writeReg(Regs::I2CMasterSlvConfig::reg, slvCfg);
+        
+        // Re-enable MASTER_ON with WRITE_ONCE cleared for continuous operation
+        masterConfig = m_RegisterInterface.readReg(Regs::I2CMasterConfig::reg);
+        masterConfig &= ~MASTER_CFG_WRITE_ONCE;
+        masterConfig |= MASTER_CFG_MASTER_ON | MASTER_CFG_AUX_SENS_ON;
+        m_RegisterInterface.writeReg(Regs::I2CMasterConfig::reg, masterConfig);
+        
         switchToMainPage();
-
-        m_Logger.info("startAuxPolling: addr=0x%02x, reg=0x%02x, bytes=%u, SLV0_CONFIG=0x%02x",
-                      aux7bitAddr_, dataReg, numBytes, slvCfg);
     }
 
     void stopAuxPolling() {

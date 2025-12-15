@@ -588,9 +588,30 @@
 		},
 		"BOARD_MCI_FENRIR_ESP32S3": {
 			"values": {
-				"SENSORS": [],
+				"SENSORS": [
+					{
+						"protocol": "I2C",
+						"imu": "IMU_AUTO",
+						"int": "255",
+						"rotation": "DEG_90",
+						"scl": "4",
+						"sda": "3"
+					},
+					{
+						"protocol": "I2C",
+						"imu": "IMU_AUTO",
+						"int": "255",
+						"rotation": "DEG_90",
+						"scl": "4",
+						"sda": "3"
+					}
+				],
 				"BATTERY": {
-					"type": "BAT_NONE"
+					"type": "BAT_MAX17048",
+					"r1": 100,
+					"r2": 100,
+					"shieldR": 0,
+					"pin": "255"
 				},
 				"LED": {
 					"LED_PIN": "LED_BUILTIN",

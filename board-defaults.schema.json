@@ -162,6 +162,12 @@
 					"properties": {
 						"type": { "const": "BAT_INTERNAL_MCP3021" }
 					}
+				},
+				{
+					"type": "object",
+					"properties": {
+						"type": { "const": "BAT_MAX17048" }
+					}
 				}
 			],
 			"required": ["type"]

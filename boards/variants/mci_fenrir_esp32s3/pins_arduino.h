@@ -11,7 +11,10 @@
 static const uint8_t LED_BUILTIN = 13;
 #define BUILTIN_LED LED_BUILTIN  // backward compatibility
 #define LED_BUILTIN LED_BUILTIN  // allow testing #ifdef LED_BUILTIN
-#define RGB_BUILTIN LED_BUILTIN
+// Don't advertise a built-in RGB LED: SlimeVR handles addressable LEDs via PIN_RGB,
+// and defining RGB_BUILTIN would cause the core to call rgbLedWriteOrdered on a
+// virtual pin that isn't wired on this board.
+// #define RGB_BUILTIN LED_BUILTIN
 
 // uart0
 static const uint8_t TX = 43;

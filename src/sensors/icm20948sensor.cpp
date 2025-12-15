@@ -313,7 +313,6 @@ void ICM20948Sensor::connectSensor() {
 			addr,
 			imu_err
 		);
-		ledManager.pattern(50, 50, 200, CRGB::HTMLColorCode::SaddleBrown);
 		return;
 	}
 }

@@ -39,14 +39,14 @@ std::vector<MagDefinition> MagDriver::supportedMags{
 
 		.setup =
 			[](MagInterface& interface) {
+				// QMC6309 soft reset sequence
 				interface.writeByte(0x0b, 0x80);
-				interface.writeByte(0x0b, 0x00);  // Soft reset
+				interface.writeByte(0x0b, 0x00);  // Soft reset clear
 				delay(10);
-				interface.writeByte(0x0b, 0x48);  // Set/reset on, 8g full range, 200Hz
-				interface.writeByte(
-					0x0a,
-					0x21
-				);  // LP filter 2, 8x Oversampling, normal mode
+				// Configure range/ODR/set-reset: 0x0B = 0x48 (8G, 200Hz, set/reset on)
+				interface.writeByte(0x0b, 0x48);
+				// Enter Normal mode with OSR1=8, OSR2=2: 0x0A = 0x21
+				interface.writeByte(0x0a, 0x21);
 				return true;
 			},
 	},

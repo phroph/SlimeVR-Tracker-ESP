@@ -81,6 +81,11 @@ public:
 		[[nodiscard]] bool getRestDetected() const;
 		// True if VQF detected a disturbed magnetic field (magnetic disturbance rejection)
 		[[nodiscard]] bool getMagDistDetected() const;
+	// Relative deviations used for rest detection (gyro, accel). Rest requires both < 1.
+	void getRelativeRestDeviations(sensor_real_t out[2]) const;
+	// Magnetic field reference diagnostics
+	[[nodiscard]] sensor_real_t getMagRefNorm() const;
+	[[nodiscard]] sensor_real_t getMagRefDip() const;
 
 protected:
 	sensor_real_t gyrTs;

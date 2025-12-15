@@ -117,7 +117,8 @@ public:
 			return;
 		}
 
-		ledManager.on(CRGB::HTMLColorCode::Orange);
+		statusManager.setImuCalibrating(true);
+		ledManager.update();
 		logger.info("Flip front in 5 seconds to start calibration");
 		lastRawSample = eatSamplesReturnLast(5000);
 		gravity = static_cast<sensor_real_t>(
@@ -130,7 +131,8 @@ public:
 			logger.info("Flip not detected. Skipping calibration.");
 		}
 
-		ledManager.off();
+		statusManager.setImuCalibrating(false);
+		ledManager.update();
 	}
 
 	void startCalibration(int calibrationType) final {
@@ -269,16 +271,15 @@ private:
 			"(%d seconds)",
 			GyroCalibDelaySeconds
 		);
-		ledManager.on(CRGB::HTMLColorCode::Orange);
+		statusManager.setImuCalibrating(true);
+		ledManager.update();
 		auto lastSamples = eatSamplesReturnLast(GyroCalibDelaySeconds);
-		ledManager.off();
+		(void)lastSamples;
 
 		calibration.temperature = std::get<2>(lastSamples) / IMU::TemperatureSensitivity
 								+ IMU::TemperatureBias;
 		logger.trace("Calibration temperature: %f", calibration.temperature);
 
-		ledManager.pattern(100, 100, 3, CRGB::HTMLColorCode::Orange);
-		ledManager.on(CRGB::HTMLColorCode::Orange);
 		logger.info("Gyro calibration started...");
 
 		int32_t sumXYZ[3] = {0};
@@ -300,9 +301,11 @@ private:
 				},
 				[](const int16_t rawTemp, const sensor_real_t timeDelta) {},
 			});
+			ledManager.update();
 		}
 
-		ledManager.off();
+		statusManager.setImuCalibrating(false);
+		ledManager.update();
 		calibration.G_off[0]
 			= static_cast<float>(sumXYZ[0]) / static_cast<float>(sampleCount);
 		calibration.G_off[1]
@@ -328,9 +331,9 @@ private:
 			"and do not hold/touch for %d seconds each",
 			AccelCalibRestSeconds
 		);
-		ledManager.on(CRGB::HTMLColorCode::Orange);
+		statusManager.setImuCalibrating(true);
+		ledManager.update();
 		eatSamplesForSeconds(AccelCalibDelaySeconds);
-		ledManager.off();
 
 		RestDetectionParams calibrationRestDetectionParams;
 		calibrationRestDetectionParams.restMinTime = AccelCalibRestSeconds;
@@ -351,8 +354,6 @@ private:
 
 		std::vector<float> accelCalibrationChunk;
 		accelCalibrationChunk.resize(numSamplesPerPosition * 3);
-		ledManager.pattern(100, 100, 6, CRGB::HTMLColorCode::Orange);
-		ledManager.on(CRGB::HTMLColorCode::Orange);
 		logger.info("Gathering accelerometer data...");
 		logger.info(
 			"Waiting for position %i, you can leave the device as is...",
@@ -381,6 +382,7 @@ private:
 						if (!calibrationRestDetection.getRestDetected()) {
 							waitForMotion = false;
 						}
+						ledManager.update();
 						return;
 					}
 
@@ -402,9 +404,6 @@ private:
 							numPositionsRecorded++;
 							numCurrentPositionSamples = 0;
 							if (numPositionsRecorded < expectedPositions) {
-								ledManager
-									.pattern(50, 50, 2, CRGB::HTMLColorCode::Orange);
-								ledManager.on(CRGB::HTMLColorCode::Orange);
 								logger.info(
 									"Recorded, waiting for position %i...",
 									numPositionsRecorded + 1
@@ -423,8 +422,10 @@ private:
 				[](const RawSensorT xyz[3], const sensor_real_t timeDelta) {},
 				[](const int16_t rawTemp, const sensor_real_t timeDelta) {},
 			});
+			ledManager.update();
 		}
-		ledManager.off();
+		statusManager.setImuCalibrating(false);
+		ledManager.update();
 		logger.debug("Calculating accelerometer calibration data...");
 		accelCalibrationChunk.resize(0);
 
@@ -455,7 +456,8 @@ private:
 			"Calibrating IMU sample rate in %d second(s)...",
 			SampleRateCalibDelaySeconds
 		);
-		ledManager.on(CRGB::HTMLColorCode::Orange);
+		statusManager.setImuCalibrating(true);
+		ledManager.update();
 		eatSamplesForSeconds(SampleRateCalibDelaySeconds);
 
 		uint32_t accelSamples = 0;
@@ -478,6 +480,7 @@ private:
 				},
 			});
 			yield();
+			ledManager.update();
 		}
 
 		const auto millisFromStart = static_cast<float>(
@@ -503,7 +506,8 @@ private:
 			1.0 / calibration.A_Ts,
 			1.0 / calibration.T_Ts
 		);
-		ledManager.off();
+		statusManager.setImuCalibrating(false);
+		ledManager.update();
 
 		// fusion needs to be recalculated
 		Base::recalcFusion();

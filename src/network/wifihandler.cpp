@@ -24,12 +24,37 @@
 
 #include "GlobalVars.h"
 #include "globals.h"
+#include "../power/PowerProfile.h"
 #if !ESP8266
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
 #endif
 
 namespace SlimeVR {
+
+static void applyRuntimeWiFiPowerTuning(SlimeVR::Logging::Logger& log) {
+#if defined(ESP32)
+	// Apply runtime overrides (if any). These are intended for quick A/B power testing
+	// without reflashing firmware.
+	if (SlimeVR::Power::g_wifiPsMode != -1) {
+		auto ps = static_cast<wifi_ps_type_t>(SlimeVR::Power::g_wifiPsMode);
+		WiFi.setSleep(ps);
+		log.info("WiFi power-save override: %d", (int)ps);
+	}
+
+	if (SlimeVR::Power::g_wifiMaxTxPowerQdbm != -1) {
+		int8_t p = SlimeVR::Power::g_wifiMaxTxPowerQdbm;
+		// Typical valid range is [8,84] qdbm (2 dBm .. 21 dBm).
+		if (p < 8) p = 8;
+		if (p > 84) p = 84;
+		if (esp_wifi_set_max_tx_power(p) == ESP_OK) {
+			log.info("WiFi max TX power override: %d qdbm (~%.2f dBm)", (int)p, p / 4.0f);
+		} else {
+			log.warn("WiFi max TX power override failed");
+		}
+	}
+#endif
+}
 
 void WiFiNetwork::reportWifiProgress() {
 	if (lastWifiReportTime + 1000 < millis()) {
@@ -110,6 +135,9 @@ void WiFiNetwork::setUp() {
 	}
 #endif
 #endif
+
+	// Apply any runtime overrides (serial PWR command) after the compile-time defaults.
+	applyRuntimeWiFiPowerTuning(wifiHandlerLogger);
 }
 
 void WiFiNetwork::onConnected() {
@@ -122,6 +150,7 @@ void WiFiNetwork::onConnected() {
 		getSSID().c_str(),
 		WiFi.localIP().toString().c_str()
 	);
+	applyRuntimeWiFiPowerTuning(wifiHandlerLogger);
 	// Reset it, in case we just connected with server creds
 }
 
@@ -410,12 +439,29 @@ bool WiFiNetwork::tryConnecting(bool phyModeG, const char* SSID, const char* pas
 	}
 #endif
 
-	setStaticIPIfDefined();
-	if (SSID == nullptr) {
-		WiFi.begin();
-	} else {
-		WiFi.begin(SSID, pass);
+	// Prevent double-connect on ESP32: esp_wifi_connect will error if already connecting.
+	// WL_IDLE_STATUS is commonly reported while connection is in progress.
+	auto st = WiFi.status();
+	if (st == WL_CONNECTED || st == WL_IDLE_STATUS) {
+		return true;
 	}
+
+	static const uint8_t U7PRO_BSSID[6] = { 0x94, 0x2A, 0x6F, 0xC4, 0x93, 0xBD };
+	static const int U7PRO_CHANNEL = 11;
+
+	setStaticIPIfDefined();
+
+	const char* ssid = (SSID != nullptr) ? SSID : WIFI_CREDS_SSID;
+	const char* password = (pass != nullptr) ? pass : WIFI_CREDS_PASSWD;
+
+	wifiHandlerLogger.info(
+		"Connecting to '%s' on ch %d, BSSID %02X:%02X:%02X:%02X:%02X:%02X",
+		ssid,
+		U7PRO_CHANNEL,
+		U7PRO_BSSID[0], U7PRO_BSSID[1], U7PRO_BSSID[2],
+		U7PRO_BSSID[3], U7PRO_BSSID[4], U7PRO_BSSID[5]
+	);
+	WiFi.begin(ssid, password, U7PRO_CHANNEL, U7PRO_BSSID, true);
 	wifiConnectionTimeout = millis();
 	return true;
 }

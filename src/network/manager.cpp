@@ -29,6 +29,9 @@ namespace SlimeVR::Network {
 void Manager::setup() { wifiNetwork.setUp(); }
 
 void Manager::update() {
+#if TRANSPORT_TYPE != TRANSPORT_UDP_WIFI
+	static_assert(false, "Only TRANSPORT_UDP_WIFI is implemented");
+#endif
 	wifiNetwork.upkeep();
 
 	auto wasConnected = m_IsConnected;

@@ -93,9 +93,16 @@ void Sensor::resetTemperatureCalibrationState() {
 const char* Sensor::getAttachedMagnetometer() const { return nullptr; }
 
 SlimeVR::Configuration::SensorConfigBits Sensor::getSensorConfigData() {
+	// Keep the config bits internally consistent:
+	// - If a feature is not supported, it must not be reported as enabled.
+	// This is particularly important for magnetometers, because the server may
+	// change its yaw-correction behavior when it believes a tracker has a working
+	// magnetometer (e.g. StayAligned skips yaw correction for mag-enabled trackers).
+	const bool magSupported = isFlagSupported(SensorToggles::MagEnabled);
+	const bool magEnabled = magSupported && toggles.getToggle(SensorToggles::MagEnabled);
 	return SlimeVR::Configuration::SensorConfigBits{
-		.magEnabled = toggles.getToggle(SensorToggles::MagEnabled),
-		.magSupported = isFlagSupported(SensorToggles::MagEnabled),
+		.magEnabled = magEnabled,
+		.magSupported = magSupported,
 		.calibrationEnabled = toggles.getToggle(SensorToggles::CalibrationEnabled),
 		.calibrationSupported = isFlagSupported(SensorToggles::CalibrationEnabled),
 		.tempGradientCalibrationEnabled

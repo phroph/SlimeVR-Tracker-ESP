@@ -540,7 +540,6 @@ void Connection::searchForServer() {
             m_FeatureFlagsRequestTimestamp = now;
 
             statusManager.setStatus(SlimeVR::Status::SERVER_CONNECTING, false);
-            ledManager.off();
 
             m_Logger.debug(
                 "Handshake successful, server is %s:%d",
@@ -559,9 +558,6 @@ void Connection::searchForServer() {
         m_LastConnectionAttemptTimestamp = now;
         m_Logger.info("Searching for the server on the local network...");
         Connection::sendTrackerDiscovery();
-        ledManager.on(CRGB::HTMLColorCode::Amethyst);
-    } else if (m_LastConnectionAttemptTimestamp + 20 < now) {
-        ledManager.off();
     }
 }
 

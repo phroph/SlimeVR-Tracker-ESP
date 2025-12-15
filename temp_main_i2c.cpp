@@ -34,10 +34,25 @@ void swapI2C(uint8_t sclPin, uint8_t sdaPin) {
 	if (sclPin != activeSCLPin || sdaPin != activeSDAPin || !isI2CActive) {
 		Wire.flush();
 #ifdef ESP32
-		// Always fully re-initialize the hardware I2C peripheral on ESP32-class MCUs
-		Wire.end();
-		Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
-		Wire.setTimeOut(150);
+		if (!isI2CActive) {
+			// Reset HWI2C to avoid being affected by I2CBUS reset
+			Wire.end();
+		}
+
+		if (activeSCLPin && activeSCLPin) {
+			// Disconnect pins from HWI2C
+			gpio_set_direction((gpio_num_t)*activeSCLPin, GPIO_MODE_INPUT);
+			gpio_set_direction((gpio_num_t)*activeSDAPin, GPIO_MODE_INPUT);
+		}
+
+		if (isI2CActive) {
+			Wire.end();
+			Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
+			Wire.setTimeOut(150);
+		} else {
+			Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin), I2C_SPEED);
+			Wire.setTimeOut(150);
+		}
 #else
 		Wire.begin(static_cast<int>(sdaPin), static_cast<int>(sclPin));
 #endif

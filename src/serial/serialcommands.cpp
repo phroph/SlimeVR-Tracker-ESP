@@ -30,18 +30,27 @@
 #include "batterymonitor.h"
 #include "logging/Logger.h"
 #include "utils.h"
+#include "mag_calibration_manager.h"
+#include "power/PowerProfile.h"
 
 #ifdef ESP32
 #include "nvs_flash.h"
+#include <WiFi.h>
+#include <esp_wifi.h>
 #endif
 
 #ifdef EXT_SERIAL_COMMANDS
-#define CALLBACK_SIZE 7  // Increase callback size to allow for debug commands
+// Base commands + extra debug commands (WIFISCAN, SCANI2C, etc.).
+// Keep this comfortably above the actual number of registered commands.
+#define CALLBACK_SIZE 12
 #include "i2cscan.h"
 #endif
 
 #ifndef CALLBACK_SIZE
-#define CALLBACK_SIZE 6  // Default callback size
+// Default callback size when EXT_SERIAL_COMMANDS is not enabled.
+// We currently register: SET, GET, PWR, FRST, FFMT, REBOOT, DELCAL, TCAL, MAGCAL.
+// Use a generous capacity to avoid silently dropping commands.
+#define CALLBACK_SIZE 12
 #endif
 
 namespace SerialCommands {
@@ -382,9 +391,189 @@ void cmdGet(CmdParser* parser) {
 
 		// Restore conencting state
 		if (WiFi.status() != WL_CONNECTED) {
-			WiFi.begin();
+			WiFi.begin(WIFI_CREDS_SSID, WIFI_CREDS_PASSWD);
 		}
 	}
+}
+
+static void printPowerStatus() {
+	logger.info(
+		"[PWR] udpSend=%s led=%s maxRotHz=%.2f",
+		SlimeVR::Power::g_udpSendEnabled ? "on" : "off",
+		SlimeVR::Power::g_ledEnabled ? "on" : "off",
+		SlimeVR::Power::g_maxRotationSendRateHz
+	);
+
+#if defined(ESP32)
+	logger.info(
+		"[PWR] wifiOverrides: psMode=%d maxTxQdbm=%d",
+		SlimeVR::Power::g_wifiPsMode,
+		(int)SlimeVR::Power::g_wifiMaxTxPowerQdbm
+	);
+	logger.info(
+		"[PWR] cpu=%dMHz heapFree=%u heapMin=%u uptime=%lus",
+		getCpuFrequencyMhz(),
+		static_cast<unsigned int>(ESP.getFreeHeap()),
+		static_cast<unsigned int>(ESP.getMinFreeHeap()),
+		static_cast<unsigned long>(millis() / 1000)
+	);
+
+	auto wl = WiFi.status();
+	logger.info(
+		"[PWR] wifiStatus=%d rssi=%d channel=%d ip=%s",
+		static_cast<int>(wl),
+		WiFi.RSSI(),
+		WiFi.channel(),
+		WiFi.localIP().toString().c_str()
+	);
+
+	wifi_ps_type_t psType{};
+	if (esp_wifi_get_ps(&psType) == ESP_OK) {
+		logger.info("[PWR] wifi_ps=%d (0=NONE 1=MIN_MODEM 2=MAX_MODEM)", (int)psType);
+	}
+
+	int8_t maxTxQdbm = 0;
+	if (esp_wifi_get_max_tx_power(&maxTxQdbm) == ESP_OK) {
+		// Quarter-dBm units (qdbm): 4 = 1 dBm.
+		logger.info("[PWR] wifi_max_tx_power=%d qdbm (~%.2f dBm)", (int)maxTxQdbm, maxTxQdbm / 4.0f);
+	}
+#endif
+
+	// Sensor timing counters are useful for correlating power draw with workload.
+	for (auto& sensor : sensorManager.getSensors()) {
+		logger.info(
+			"[PWR] Sensor[%d] tps=%.1f dataTps=%.1f",
+			sensor->getSensorId(),
+			sensor->m_tpsCounter.getAveragedTPS(),
+			sensor->m_dataCounter.getAveragedTPS()
+		);
+	}
+}
+
+void cmdPower(CmdParser* parser) {
+	if (parser->getParamCount() < 2) {
+		logger.info("Usage:");
+		logger.info("  PWR STATUS");
+		logger.info("  PWR SEND <0|1>     (disable/enable UDP sending)");
+		logger.info("  PWR LED <0|1>      (disable/enable LED updates)");
+		logger.info("  PWR RATE <hz|0>    (0=default, else cap rotation send rate)");
+#if defined(ESP32)
+		logger.info("  PWR MODE <FIDELITY|LOW>  (apply a bundle of runtime knobs)");
+#endif
+#if defined(ESP32)
+		logger.info("  PWR WIFIPS <0|1|2> (0=NONE 1=MIN_MODEM 2=MAX_MODEM, -1=default)");
+		logger.info("  PWR WIFITX <qdbm>  (quarter-dBm units: 4=1dBm, -1=default)");
+		logger.info("  PWR CPU <mhz>      (set CPU freq, e.g. 80/160/240)");
+#endif
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "STATUS")) {
+		printPowerStatus();
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "SEND")) {
+		if (parser->getParamCount() < 3) {
+			logger.error("PWR SEND requires <0|1>");
+			return;
+		}
+		int v = atoi(parser->getCmdParam(2));
+		SlimeVR::Power::g_udpSendEnabled = (v != 0);
+		logger.info("[PWR] udpSend=%s", SlimeVR::Power::g_udpSendEnabled ? "on" : "off");
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "LED")) {
+		if (parser->getParamCount() < 3) {
+			logger.error("PWR LED requires <0|1>");
+			return;
+		}
+		int v = atoi(parser->getCmdParam(2));
+		SlimeVR::Power::g_ledEnabled = (v != 0);
+		logger.info("[PWR] led=%s", SlimeVR::Power::g_ledEnabled ? "on" : "off");
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "RATE")) {
+		if (parser->getParamCount() < 3) {
+			logger.error("PWR RATE requires <hz|0>");
+			return;
+		}
+		SlimeVR::Power::g_maxRotationSendRateHz = atof(parser->getCmdParam(2));
+		logger.info("[PWR] maxRotHz=%.2f", SlimeVR::Power::g_maxRotationSendRateHz);
+		return;
+	}
+
+#if defined(ESP32)
+	if (parser->equalCmdParam(1, "MODE")) {
+		if (parser->getParamCount() < 3) {
+			logger.error("PWR MODE requires <FIDELITY|LOW>");
+			return;
+		}
+
+		if (parser->equalCmdParam(2, "FIDELITY")) {
+			SlimeVR::Power::g_ledEnabled = true;
+			SlimeVR::Power::g_udpSendEnabled = true;
+			SlimeVR::Power::g_maxRotationSendRateHz = 100.0f;
+			SlimeVR::Power::g_wifiPsMode = WIFI_PS_MIN_MODEM;
+			SlimeVR::Power::g_wifiMaxTxPowerQdbm = -1;
+			setCpuFrequencyMhz(240);
+			logger.info("[PWR] Applied MODE=FIDELITY");
+			printPowerStatus();
+			return;
+		}
+
+		if (parser->equalCmdParam(2, "LOW")) {
+			SlimeVR::Power::g_ledEnabled = false;
+			SlimeVR::Power::g_udpSendEnabled = true;
+			SlimeVR::Power::g_maxRotationSendRateHz = 60.0f;
+			SlimeVR::Power::g_wifiPsMode = WIFI_PS_MAX_MODEM;
+			// 40 qdbm ~= 10 dBm is typically plenty with a dedicated in-room AP.
+			SlimeVR::Power::g_wifiMaxTxPowerQdbm = 40;
+			setCpuFrequencyMhz(80);
+			logger.info("[PWR] Applied MODE=LOW");
+			printPowerStatus();
+			return;
+		}
+
+		logger.error("PWR MODE: unknown preset");
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "WIFIPS")) {
+		if (parser->getParamCount() < 3) {
+			logger.error("PWR WIFIPS requires <-1|0|1|2>");
+			return;
+		}
+		SlimeVR::Power::g_wifiPsMode = atoi(parser->getCmdParam(2));
+		logger.info("[PWR] wifiPsMode=%d (applied on next connect / via STATUS)", SlimeVR::Power::g_wifiPsMode);
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "WIFITX")) {
+		if (parser->getParamCount() < 3) {
+			logger.error("PWR WIFITX requires <qdbm|-1>");
+			return;
+		}
+		SlimeVR::Power::g_wifiMaxTxPowerQdbm = static_cast<int8_t>(atoi(parser->getCmdParam(2)));
+		logger.info("[PWR] wifiMaxTxPowerQdbm=%d (applied on next connect / via STATUS)", (int)SlimeVR::Power::g_wifiMaxTxPowerQdbm);
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "CPU")) {
+		if (parser->getParamCount() < 3) {
+			logger.error("PWR CPU requires <mhz>");
+			return;
+		}
+		int mhz = atoi(parser->getCmdParam(2));
+		setCpuFrequencyMhz(mhz);
+		logger.info("[PWR] cpu now %dMHz", getCpuFrequencyMhz());
+		return;
+	}
+#endif
+
+	logger.error("PWR ERROR: Unknown subcommand");
 }
 
 void cmdReboot(CmdParser* parser) {
@@ -478,6 +667,43 @@ void cmdDeleteCalibration(CmdParser* parser) {
 	configuration.eraseSensors();
 }
 
+void cmdMagCalibration(CmdParser* parser) {
+	if (parser->getParamCount() < 2) {
+		logger.info("Usage:");
+		logger.info("  MAGCAL START  - start magnetometer calibration (equiv. long-press)");
+		logger.info("  MAGCAL STOP   - finish sample collection (equiv. short-press)");
+		logger.info("  MAGCAL STATUS - show current mag calibration state");
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "START")) {
+		SlimeVR::MagCalibration::g_magCalManager.startCalibrationManual();
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "STOP")) {
+		SlimeVR::MagCalibration::g_magCalManager.finishCalibrationManual();
+		return;
+	}
+
+	if (parser->equalCmdParam(1, "STATUS")) {
+		using SlimeVR::MagCalibration::MagCalState;
+		auto state = SlimeVR::MagCalibration::g_magCalManager.getState();
+		const char* s = "UNKNOWN";
+		switch (state) {
+			case MagCalState::IDLE: s = "IDLE"; break;
+			case MagCalState::COLLECTING: s = "COLLECTING"; break;
+			case MagCalState::WAITING_FOR_RESULT: s = "WAITING_FOR_RESULT"; break;
+			case MagCalState::COMPLETE: s = "COMPLETE"; break;
+			case MagCalState::ERROR: s = "ERROR"; break;
+		}
+		logger.info("Mag calibration state: %s", s);
+		return;
+	}
+
+	logger.error("MAGCAL ERROR: Unknown subcommand");
+}
+
 #if EXT_SERIAL_COMMANDS
 void cmdScanI2C(CmdParser* parser) {
 	logger.info("Forcing I2C scan...");
@@ -488,11 +714,13 @@ void cmdScanI2C(CmdParser* parser) {
 void setUp() {
 	cmdCallbacks.addCmd("SET", &cmdSet);
 	cmdCallbacks.addCmd("GET", &cmdGet);
+	cmdCallbacks.addCmd("PWR", &cmdPower);
 	cmdCallbacks.addCmd("FRST", &cmdFactoryReset);
 	cmdCallbacks.addCmd("FFMT", &cmdFormatFFat);  // Format FFat filesystem
 	cmdCallbacks.addCmd("REBOOT", &cmdReboot);
 	cmdCallbacks.addCmd("DELCAL", &cmdDeleteCalibration);
 	cmdCallbacks.addCmd("TCAL", &cmdTemperatureCalibration);
+	cmdCallbacks.addCmd("MAGCAL", &cmdMagCalibration);
 #if EXT_SERIAL_COMMANDS
 	cmdCallbacks.addCmd("SCANI2C", &cmdScanI2C);
 #endif

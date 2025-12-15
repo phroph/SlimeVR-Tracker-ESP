@@ -36,7 +36,6 @@ void BNO080Sensor::motionSetup() {
 			getIMUNameByType(sensorType),
 			addr
 		);
-		ledManager.pattern(50, 50, 200, CRGB::HTMLColorCode::SaddleBrown);
 		return;
 	}
 

@@ -29,7 +29,7 @@
 #include <cmath>
 
 #include "GlobalVars.h"
-#include "status/LEDManager.h"
+#include "status/StatusManager.h"
 
 namespace SlimeVR::MagCalibration {
 
@@ -75,8 +75,11 @@ void MagCalibrationManager::setup() {
 	#endif
 	// If not explicitly configured, will use server IP (updated in update())
 
-	// Check if we should enter calibration mode (only if WiFi is connected)
-	if (WiFi.status() == WL_CONNECTED && shouldEnterCalibrationMode()) {
+	// Check if we should enter calibration mode on boot. This decision is based
+	// only on local state (no valid calibration + boot button held) and does
+	// NOT depend on WiFi being connected, so that the user gets immediate
+	// feedback (LED + logging) even before networking is up.
+	if (shouldEnterCalibrationMode()) {
 		m_logger.info("Entering mag calibration mode on boot");
 		enterCalibrationMode();
 	}
@@ -88,15 +91,32 @@ void MagCalibrationManager::update() {
 		return;
 	}
 
+	// If we've detected that mag sidecar network calls are too slow, completely
+	// disable further processing here to ensure we never impact the IMU/FIFO
+	// loop. The tracker will continue to function without mag sidecar support.
+	if (m_networkDisabled) {
+		return;
+	}
+
+	// Handle runtime button presses for starting / stopping calibration.
+	updateButton();
+
 	// Update sidecar IP from server IP if not explicitly configured
 	if (!m_sidecarIPConfigured) {
 		IPAddress serverIP = networkConnection.getServerHost();
 		if (serverIP != IPAddress(0, 0, 0, 0) && serverIP != IPAddress(255, 255, 255, 255)) {
 			if (m_sidecarIP != serverIP) {
 				m_sidecarIP = serverIP;
+				m_helloSent = false;  // Need to re-send hello to new IP
 				m_logger.info("Mag sidecar IP set to server IP: %s", m_sidecarIP.toString().c_str());
 			}
 		}
+	}
+
+	// Send hello message to register with sidecar (required by Magneto protocol)
+	// Must be sent before telemetry will be accepted
+	if (!m_helloSent && m_sidecarIP != IPAddress(0, 0, 0, 0)) {
+		sendHello();
 	}
 
 	// Check if we should enter calibration mode (first time WiFi connects)
@@ -118,10 +138,14 @@ void MagCalibrationManager::update() {
 
 bool MagCalibrationManager::shouldEnterCalibrationMode() const {
 #if ENABLE_MAG_CALIBRATION_MODE
-	// Only enter if:
-	// 1. No valid calibration exists
-	// 2. Button is held on boot
-	if (!m_calConfig.valid && isMagCalButtonHeldOnBoot()) {
+	// Enter calibration mode at boot if the dedicated button is held down.
+	// This is treated as an explicit user request and takes precedence over
+	// any existing saved calibration.
+	//
+	// Runtime re-calibration is still available via long-press handling in
+	// updateButton(), but holding the button during boot will always force
+	// a calibration run for this session.
+	if (isMagCalButtonHeldOnBoot()) {
 		return true;
 	}
 #endif
@@ -136,10 +160,77 @@ void MagCalibrationManager::enterCalibrationMode() {
 	m_samplesSent = 0;
 	m_lastSampleTime = 0;
 
-	// Change LED to indicate calibration mode (e.g., fast blink)
-	// ledManager.setPattern(...);
+	// Clear any leftover queued samples from a previous run so that each
+	// calibration session starts with a clean buffer and sample counter.
+	m_calibQueueHead = 0;
+	m_calibQueueTail = 0;
+	m_calibQueueSize = 0;
+
+	// Notify the centralized status manager that mag calibration is active.
+	// The LED will show the appropriate pattern based on priority.
+	statusManager.setMagCalibrating(true);
 
 	m_logger.info("Mag calibration mode: collecting samples...");
+#endif
+}
+
+void MagCalibrationManager::updateButton() {
+#ifdef MAG_CAL_BUTTON_PIN
+	uint32_t nowMs = millis();
+
+	if (!m_buttonInitialized) {
+		pinMode(MAG_CAL_BUTTON_PIN, INPUT_PULLUP);
+		m_buttonLastLevel = digitalRead(MAG_CAL_BUTTON_PIN);
+		m_buttonLastChangeMs = nowMs;
+		m_buttonInitialized = true;
+	}
+
+	bool level = digitalRead(MAG_CAL_BUTTON_PIN);
+	if (level != m_buttonLastLevel) {
+		// Debounce
+		if (nowMs - m_buttonLastChangeMs >= BUTTON_DEBOUNCE_MS) {
+			m_buttonLastChangeMs = nowMs;
+			m_buttonLastLevel = level;
+
+			// Active-low button: LOW = pressed, HIGH = released
+			if (level == LOW) {
+				// Button press start
+				m_buttonPressStartMs = nowMs;
+			} else {
+				// Button released
+				if (m_buttonPressStartMs != 0) {
+					uint32_t pressDuration = nowMs - m_buttonPressStartMs;
+					m_buttonPressStartMs = 0;
+
+					// Long press: start a new calibration run (from IDLE / COMPLETE / ERROR)
+					if (pressDuration >= BUTTON_LONG_PRESS_MS) {
+						if (m_state == MagCalState::IDLE
+							|| m_state == MagCalState::COMPLETE
+							|| m_state == MagCalState::ERROR) {
+							m_logger.info(
+								"Mag cal button long-press detected, starting "
+								"magnetometer calibration"
+							);
+							resetCalibration();
+							enterCalibrationMode();
+						}
+					}
+					// Short press during COLLECTING: finish sample collection early
+					else if (
+						pressDuration >= BUTTON_SHORT_PRESS_MS
+						&& m_state == MagCalState::COLLECTING
+					) {
+						m_logger.info(
+							"Mag cal button short-press detected, finishing "
+							"magnetometer calibration sample collection"
+						);
+						sendCalibDone();
+						m_state = MagCalState::WAITING_FOR_RESULT;
+					}
+				}
+			}
+		}
+	}
 #endif
 }
 
@@ -209,6 +300,20 @@ void MagCalibrationManager::feedMagSample(float mx, float my, float mz) {
 	// Queue sample instead of sending immediately (non-blocking)
 	// This is called from IMU read path, so we must not block
 	if (m_state != MagCalState::COLLECTING) {
+		// During normal operation this is expected (we continuously feed raw mag
+		// samples but only record them when a calibration run is active). To
+		// help debug cases where no samples ever reach the sidecar, log a
+		// single warning the first time we see mag samples while not in
+		// COLLECTING, then stay quiet to avoid spam.
+		static bool warnedOnce = false;
+		if (!warnedOnce) {
+			m_logger.warn(
+				"feedMagSample called while not COLLECTING (state=%d); "
+				"mag data will not be recorded for calibration",
+				static_cast<int>(m_state)
+			);
+			warnedOnce = true;
+		}
 		return;
 	}
 
@@ -227,8 +332,14 @@ void MagCalibrationManager::feedMagSample(float mx, float my, float mz) {
 			m_calibQueueTail = (m_calibQueueTail + 1) % MAX_QUEUED_CALIB_SAMPLES;
 			m_calibQueueSize++;
 		} else {
-			// Queue full - drop sample and log warning
-			m_logger.warn("Mag sample queue full, dropping sample");
+			// Queue full - drop sample. This can happen if the IMU loop is
+			// producing samples faster than we can drain them over WiFi (for
+			// example on slower networks). To avoid log spam, rate-limit the
+			// warning instead of printing every drop.
+			static uint32_t droppedCount = 0;
+			if ((droppedCount++ % 50u) == 0u) {
+				m_logger.warn("Mag sample queue full, dropping sample");
+			}
 		}
 	}
 }
@@ -239,7 +350,58 @@ void MagCalibrationManager::resetCalibration() {
 	m_logger.info("Mag calibration reset");
 }
 
+void MagCalibrationManager::startCalibrationManual() {
+#if ENABLE_MAG_CALIBRATION_MODE
+	// Mimic long-press behaviour: clear existing calibration and start a new run
+	m_logger.info("Mag calibration: manual START requested (serial)");
+	resetCalibration();
+	enterCalibrationMode();
+#else
+	m_logger.warn("Mag calibration: manual START requested but ENABLE_MAG_CALIBRATION_MODE=0");
+#endif
+}
+
+void MagCalibrationManager::finishCalibrationManual() {
+#if ENABLE_MAG_CALIBRATION_MODE
+	if (m_state == MagCalState::COLLECTING) {
+		m_logger.info("Mag calibration: manual STOP requested (serial), finishing sample collection");
+		sendCalibDone();
+		m_state = MagCalState::WAITING_FOR_RESULT;
+	} else {
+		m_logger.warn(
+			"Mag calibration: manual STOP requested (serial) but not in COLLECTING state (state=%d)",
+			static_cast<int>(m_state)
+		);
+	}
+#else
+	m_logger.warn("Mag calibration: manual STOP requested but ENABLE_MAG_CALIBRATION_MODE=0");
+#endif
+}
+
+void MagCalibrationManager::sendHello() {
+	if (m_networkDisabled) {
+		return;
+	}
+	// Send hello message to register with sidecar
+	// Required by Magneto protocol before sending telemetry
+	char buffer[256];
+	snprintf(buffer, sizeof(buffer),
+		"{\"type\":\"hello\",\"trackerId\":\"%s\",\"fwVersion\":\"" FIRMWARE_VERSION "\",\"supportsMagCalibration\":true,\"supportsYawCorrection\":true}",
+		m_trackerId);
+
+	m_udp.beginPacket(m_sidecarIP, m_sidecarPort);
+	m_udp.write((uint8_t*)buffer, strlen(buffer));
+	m_udp.endPacket();
+
+	m_helloSent = true;
+	m_logger.info("Sent hello to sidecar at %s:%d (trackerId: %s)", 
+		m_sidecarIP.toString().c_str(), m_sidecarPort, m_trackerId);
+}
+
 void MagCalibrationManager::sendCalibSample(float mx, float my, float mz, uint32_t timestamp) {
+	if (m_networkDisabled) {
+		return;
+	}
 	char buffer[256];
 	snprintf(buffer, sizeof(buffer),
 		"{\"type\":\"calib_sample\",\"trackerId\":\"%s\",\"timestamp\":%u,\"mx\":%.6f,\"my\":%.6f,\"mz\":%.6f}",
@@ -251,6 +413,17 @@ void MagCalibrationManager::sendCalibSample(float mx, float my, float mz, uint32
 }
 
 void MagCalibrationManager::sendCalibDone() {
+	if (m_networkDisabled) {
+		// We previously detected that UDP calls were too slow and disabled mag
+		// sidecar networking for this boot. Log explicitly so it's clear why no
+		// calib_done is going out even though the user requested STOP.
+		m_logger.warn(
+			"Not sending calib_done: mag sidecar networking is disabled for "
+			"this session (maxNetworkCallTimeUs=%u)",
+			m_maxNetworkCallTimeUs
+		);
+		return;
+	}
 	char buffer[128];
 	snprintf(buffer, sizeof(buffer),
 		"{\"type\":\"calib_done\",\"trackerId\":\"%s\"}",
@@ -260,10 +433,17 @@ void MagCalibrationManager::sendCalibDone() {
 	m_udp.write((uint8_t*)buffer, strlen(buffer));
 	m_udp.endPacket();
 
-	m_logger.info("Sent calib_done to sidecar");
+	m_logger.info(
+		"Sent calib_done to sidecar (samplesSent=%u, queuedSamples=%u)",
+		m_samplesSent,
+		static_cast<unsigned int>(m_calibQueueSize)
+	);
 }
 
 void MagCalibrationManager::sendTelemetryPacket(const float quat[4], const float magCal[3], float magQuality, uint32_t timestamp) {
+	if (m_networkDisabled) {
+		return;
+	}
 	char buffer[512];
 	snprintf(buffer, sizeof(buffer),
 		"{\"type\":\"telemetry\",\"trackerId\":\"%s\",\"timestamp\":%u,\"quat\":[%.6f,%.6f,%.6f,%.6f],\"magCal\":[%.6f,%.6f,%.6f],\"magQuality\":%.3f}",
@@ -278,6 +458,9 @@ void MagCalibrationManager::sendTelemetryPacket(const float quat[4], const float
 }
 
 void MagCalibrationManager::receiveAndProcessPackets() {
+	if (m_networkDisabled) {
+		return;
+	}
 	int packetSize = m_udp.parsePacket();
 	if (packetSize <= 0) {
 		return;
@@ -351,9 +534,12 @@ void MagCalibrationManager::handleCalibResult(const char* json, size_t len) {
 	if (magCalSave(m_calConfig)) {
 		m_logger.info("Mag calibration saved successfully");
 		m_state = MagCalState::COMPLETE;
+		// Calibration finished - notify status manager
+		statusManager.setMagCalibrating(false);
 	} else {
 		m_logger.error("Failed to save mag calibration");
 		m_state = MagCalState::ERROR;
+		statusManager.setMagCalibrating(false);
 	}
 }
 
@@ -442,9 +628,16 @@ void MagCalibrationManager::updateStateMachine() {
 				break;
 			}
 
-			// Check if we have enough samples
-			if (m_samplesSent >= MIN_SAMPLES) {
-				m_logger.info("Collected %u samples, sending calib_done", m_samplesSent);
+			// If we've collected a large, high-quality dataset, auto-submit to the
+			// sidecar. This gives us an effective target range of
+			// [MIN_SAMPLES, MAX_SAMPLES] samples, but still allows the user to
+			// finish early via STOP.
+			if (m_samplesSent >= MAX_SAMPLES) {
+				m_logger.info(
+					"Collected %u samples (>= MAX_SAMPLES=%u), auto-submitting calib_done",
+					m_samplesSent,
+					MAX_SAMPLES
+				);
 				sendCalibDone();
 				m_state = MagCalState::WAITING_FOR_RESULT;
 				break;
@@ -460,6 +653,8 @@ void MagCalibrationManager::updateStateMachine() {
 			if (now - waitStart > RESULT_TIMEOUT_MS) {
 				m_logger.error("Calibration result timeout");
 				m_state = MagCalState::ERROR;
+				// Timed out - notify status manager
+				statusManager.setMagCalibrating(false);
 			}
 			break;
 		}
@@ -473,29 +668,20 @@ void MagCalibrationManager::updateStateMachine() {
 }
 
 bool MagCalibrationManager::isMagCalButtonHeldOnBoot() const {
-	// Check if a specific GPIO button is held for a few seconds at power-on
-	// For ESP32-S3, common buttons are GPIO 0 (BOOT) or GPIO 9 (USER_BUTTON)
-	// This is a placeholder - actual implementation depends on board
+	// Original implementation used a blocking 5s loop with delay(), which can
+	// completely stall the timing-critical IMU/FIFO loop when called from the
+	// main thread. To guarantee non-blocking behaviour, we now treat "held on
+	// boot" as simply "button is currently pressed at boot" and avoid any
+	// waiting here.
 
-	#ifdef MAG_CAL_BUTTON_PIN
-		pinMode(MAG_CAL_BUTTON_PIN, INPUT_PULLUP);
-		delay(100);  // Debounce
-
-		uint32_t startTime = millis();
-		constexpr uint32_t HOLD_TIME_MS = 5000;  // 5 seconds
-
-		while (millis() - startTime < HOLD_TIME_MS) {
-			if (digitalRead(MAG_CAL_BUTTON_PIN) == HIGH) {
-				return false;  // Button released
-			}
-			delay(100);
-		}
-
-		return true;  // Button held for required time
-	#else
-		// No button defined, return false (safe default)
-		return false;
-	#endif
+#ifdef MAG_CAL_BUTTON_PIN
+	pinMode(MAG_CAL_BUTTON_PIN, INPUT_PULLUP);
+	// Active-low: LOW means pressed
+	return digitalRead(MAG_CAL_BUTTON_PIN) == LOW;
+#else
+	// No button defined, return false (safe default)
+	return false;
+#endif
 }
 
 const char* MagCalibrationManager::getTrackerId() const {
@@ -514,6 +700,16 @@ void MagCalibrationManager::drainCalibSampleQueue() {
 			uint32_t elapsed = micros() - startTime;
 			recordNetworkCallTime(elapsed);
 			m_samplesSent++;
+			// Log once when we've reached the recommended minimum, but do not
+			// automatically stop collection. The user (or timeout) will decide
+			// when to finish.
+			if (m_samplesSent == MIN_SAMPLES) {
+				m_logger.info(
+					"Collected %u samples (recommended minimum), continue "
+					"moving for extra coverage or send STOP to finish.",
+					m_samplesSent
+				);
+			}
 			m_calibQueueHead = (m_calibQueueHead + 1) % MAX_QUEUED_CALIB_SAMPLES;
 			m_calibQueueSize--;
 		}
@@ -546,18 +742,20 @@ void MagCalibrationManager::recordNetworkCallTime(uint32_t timeUs) {
 		m_maxNetworkCallTimeUs = timeUs;
 	}
 	
-	// Log warning if network call took too long (> 1ms)
-	if (timeUs > 1000) {
-		m_logger.warn("Network call took %u us (max: %u us, avg: %u us)",
-			timeUs, m_maxNetworkCallTimeUs,
-			m_totalNetworkCalls > 0 ? m_totalNetworkTimeUs / m_totalNetworkCalls : 0);
-	}
-	
-	// Periodically log statistics (every 1000 calls)
-	if (m_totalNetworkCalls % 1000 == 0 && m_totalNetworkCalls > 0) {
-		uint32_t avgTimeUs = m_totalNetworkTimeUs / m_totalNetworkCalls;
-		m_logger.debug("Network call stats: max=%u us, avg=%u us, total=%u",
-			m_maxNetworkCallTimeUs, avgTimeUs, m_totalNetworkCalls);
+	// If a single network call takes too long, it can starve the IMU FIFO and
+	// cause overruns. If we ever see a call taking more than ~2ms, permanently
+	// disable mag sidecar networking for this boot to guarantee the tracker
+	// loop stays responsive. The device will continue operating without mag
+	// sidecar support.
+	if (timeUs > 2000 && !m_networkDisabled) {
+		m_networkDisabled = true;
+		m_logger.error(
+			"Mag sidecar network call took %u us (max so far %u us). "
+			"Disabling mag sidecar networking for this session to protect "
+			"IMU/FIFO timing.",
+			timeUs,
+			m_maxNetworkCallTimeUs
+		);
 	}
 }
 

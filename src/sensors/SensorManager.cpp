@@ -24,6 +24,9 @@
 #include "SensorManager.h"
 
 #include "SensorBuilder.h"
+#include "../GlobalVars.h"
+#include "../power/PowerProfile.h"
+#include "../status/StatusManager.h"
 
 namespace SlimeVR::Sensors {
 
@@ -60,12 +63,21 @@ void SensorManager::postSetup() {
 void SensorManager::update() {
 	// Gather IMU data
 	bool allIMUGood = true;
+	bool allRestCalibrated = true;
+	bool hasWorkingSensors = false;
+
 	for (auto& sensor : m_Sensors) {
 		if (sensor->isWorking()) {
+			hasWorkingSensors = true;
 			if (sensor->m_hwInterface != nullptr) {
 				sensor->m_hwInterface->swapIn();
 			}
 			sensor->motionLoop();
+
+			// Check rest calibration status for working sensors
+			if (!sensor->hasCompletedRestCalibration()) {
+				allRestCalibrated = false;
+			}
 		}
 		if (sensor->getSensorState() == SensorStatus::SENSOR_ERROR) {
 			allIMUGood = false;
@@ -74,7 +86,18 @@ void SensorManager::update() {
 
 	statusManager.setStatus(SlimeVR::Status::IMU_ERROR, !allIMUGood);
 
+	// Update rest calibration status for LED display
+	// If no working sensors, we don't need rest calibration
+	statusManager.setNeedsRestCalibration(hasWorkingSensors && !allRestCalibrated);
+
 	if (!networkConnection.isConnected()) {
+		return;
+	}
+
+	// For baseline power measurements we sometimes want to keep IMU/fusion running
+	// while stopping all UDP transmissions. This allows measuring the delta between
+	// \"compute only\" and \"compute + WiFi\" without changing firmware.
+	if (!SlimeVR::Power::g_udpSendEnabled) {
 		return;
 	}
 

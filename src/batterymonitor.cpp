@@ -177,7 +177,7 @@ void BatteryMonitor::Loop() {
 			} else if (level < 0) {
 				level = 0;
 			}
-
+		}
 #endif
 		if (voltage > 0) {
 			networkConnection.sendBatteryLevel(voltage, level);

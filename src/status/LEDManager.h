@@ -1,6 +1,6 @@
 /*
 	SlimeVR Code is placed under the MIT license
-	Copyright (c) 2022 TheDevMinerTV
+	Copyright (c) 2022 TheDevMinerTV, 2025 SlimeVR Contributors
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -20,6 +20,7 @@
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 	THE SOFTWARE.
 */
+
 #ifndef SLIMEVR_LEDMANAGER_H
 #define SLIMEVR_LEDMANAGER_H
 
@@ -28,79 +29,100 @@
 
 #include "../globals.h"
 #include "../logging/Logger.h"
+#include "LEDStatus.h"
 
-#define DEFAULT_LENGTH 300
-#define DEFAULT_GAP 500
-#define DEFAULT_INTERVAL 3000
 #define NUM_LEDS 1
 
-#define STANDBUY_LENGTH DEFAULT_LENGTH
-#define IMU_ERROR_LENGTH DEFAULT_LENGTH
-#define IMU_ERROR_INTERVAL 1000
-#define IMU_ERROR_COUNT 5
-#define LOW_BATTERY_LENGTH DEFAULT_LENGTH
-#define LOW_BATTERY_INTERVAL 300
-#define LOW_BATTERY_COUNT 1
-#define WIFI_CONNECTING_LENGTH DEFAULT_LENGTH
-#define WIFI_CONNECTING_INTERVAL 3000
-#define WIFI_CONNECTING_COUNT 3
-#define SERVER_CONNECTING_LENGTH DEFAULT_LENGTH
-#define SERVER_CONNECTING_INTERVAL 3000
-#define SERVER_CONNECTING_COUNT 2
-
 namespace SlimeVR {
-enum LEDStage { OFF, ON, GAP, INTERVAL };
 
+/**
+ * LED Manager - displays system status via LED patterns.
+ *
+ * Supports two LED types with RGB as priority:
+ * 1. Addressable RGB LED (PIN_RGB) - NeoPixel/WS2812 via FastLED (preferred)
+ * 2. Generic single-color LED (LED_PIN) - fallback for simpler boards
+ *
+ * If both are defined, RGB takes priority. If neither is usable, LED is disabled.
+ */
 class LEDManager {
 public:
 	void setup();
 
-	/*!
-	 *  @brief Turns the LED on
+	/**
+	 * Update the LED display based on current system status.
+	 * Call this regularly from the main loop.
 	 */
-	void on(CRGB::HTMLColorCode color);
+	void update();
 
-	/*!
-	 *  @brief Turns the LED off
+	/**
+	 * Force the LED off (for power saving or shutdown).
 	 */
 	void off();
 
-	/*!
-	 *  @brief Blink the LED for [time]ms. *Can* cause lag
-	 *  @param time Amount of ms to turn the LED on
+	/**
+	 * Turn the LED on with a specific color.
 	 */
-	void blink(unsigned long time, CRGB::HTMLColorCode color);
+	void on(CRGB color);
 
-	/*!
-	 *  @brief Show a pattern on the LED. *Can* cause lag
-	 *  @param timeon Amount of ms to turn the LED on
-	 *  @param timeoff Amount of ms to turn the LED off
-	 *  @param times Amount of times to display the pattern
+	/**
+	 * Blocking blink for simple status indication during startup.
+	 * Avoid using this during normal operation as it blocks.
 	 */
-	void pattern(
-		unsigned long timeon,
-		unsigned long timeoff,
-		int times,
-		CRGB::HTMLColorCode color
-	);
+	void blink(unsigned long timeMs, CRGB color);
 
-	void update();
+	/**
+	 * Blocking pattern for simple status indication during startup.
+	 * Avoid using this during normal operation as it blocks.
+	 */
+	void pattern(unsigned long onMs, unsigned long offMs, int times, CRGB color);
 
 private:
-	uint8_t m_CurrentCount = 0;
-	unsigned long m_Timer = 0;
-	LEDStage m_CurrentStage = OFF;
-	unsigned long m_LastUpdate = millis();
+	// RGB LED support (priority)
+#if defined(PIN_RGB) && !defined(DISABLE_RGB_FASTLED)
+	static constexpr bool m_HasRGB = true;
+#else
+	static constexpr bool m_HasRGB = false;
+#endif
 
+	// Generic LED fallback
 	uint8_t m_Pin = LED_PIN;
-	bool m_Enabled = m_Pin >= 0 && m_Pin < LED_OFF;
+	bool m_HasGenericLED = m_Pin >= 0 && m_Pin < LED_OFF;
 	bool m_On = LED_INVERTED ? LOW : HIGH;
 	bool m_Off = !m_On;
 
+	// Enabled if we have either RGB or generic LED
+	bool m_Enabled = m_HasRGB || m_HasGenericLED;
+
+	CRGB m_Leds[NUM_LEDS];
+	CRGB m_CurrentColor = CRGB::Black;
+	bool m_PowerEnabled = false;
+
+	// Pattern state machine
+	enum class PatternStage { OFF, ON, GAP, INTERVAL };
+	PatternStage m_Stage = PatternStage::OFF;
+	uint8_t m_BlinkCount = 0;
+	uint32_t m_StageStartMs = 0;
+
+	// Pulse state (for breathing effect)
+	uint32_t m_PulseStartMs = 0;
+
+	// Track current status to detect changes
+	Status::LEDStatus m_CurrentStatus = Status::LEDStatus::OFF;
+
+	// Power profile integration
+	bool m_UserEnabled = true;
+
+	// Timing
+	uint32_t m_LastUpdateMs = 0;
+
 	Logging::Logger m_Logger = Logging::Logger("LEDManager");
 
-	CRGB leds[NUM_LEDS];
+	// Internal helpers
+	void setLED(CRGB color);
+	void updateBlink(const Status::LEDStatusConfig& config);
+	void updatePulse(const Status::LEDStatusConfig& config);
 };
+
 }  // namespace SlimeVR
 
 #endif

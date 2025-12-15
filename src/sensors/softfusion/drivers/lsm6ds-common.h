@@ -64,43 +64,69 @@ struct LSM6DSOutputHandler {
 		constexpr auto FIFO_SAMPLES_MASK = 0x3ff;
 		constexpr auto FIFO_OVERRUN_LATCHED_MASK = 0x800;
 
-		const auto fifo_status = m_RegisterInterface.readReg16(Regs::FifoStatus);
-		const auto available_axes = fifo_status & FIFO_SAMPLES_MASK;
-		const auto fifo_bytes = available_axes * FullFifoEntrySize;
-		if (fifo_status & FIFO_OVERRUN_LATCHED_MASK) {
-			// FIFO overrun is expected to happen during startup and calibration
-			m_Logger.error(
-				"FIFO OVERRUN! This occuring during normal usage is an issue."
-			);
-		}
+		// Drain FIFO in chunks. This is important when:
+		// - IMU ODR is high (e.g. 480–960 Hz gyro)
+		// - Network send rate is lower (e.g. 60–90 Hz)
+		// - Main loop stalls (WiFi / OTA)
+		//
+		// Without draining, FIFO can accumulate >8 samples quickly and we would drop
+		// the remainder each cycle.
+		// NOTE: Keep this chunk <= typical Arduino Wire RX buffer (often 128 bytes).
+		// FullFifoEntrySize is 7 bytes, so 16 entries = 112 bytes (safe).
+		std::array<uint8_t, FullFifoEntrySize * 16> read_buffer;  // up to 16 entries/chunk
+		for (int iter = 0; iter < 16; iter++) {  // hard guard: max 256 entries/call (16*16)
+			const auto fifo_status = m_RegisterInterface.readReg16(Regs::FifoStatus);
+			const auto available_axes = fifo_status & FIFO_SAMPLES_MASK;
+			const auto fifo_bytes = available_axes * FullFifoEntrySize;
+			if (fifo_status & FIFO_OVERRUN_LATCHED_MASK) {
+				// FIFO overrun is expected to happen during startup and also during
+				// intensive operations like magnetometer calibration, where we
+				// deliberately add aux-bus traffic and extra logging. To keep logs
+				// usable, rate-limit this warning instead of spamming every frame.
+				static uint32_t overrunCount = 0;
+				if ((overrunCount++ % 50u) == 0u) {
+					m_Logger.error(
+						"FIFO OVERRUN! This occuring during normal usage is an issue."
+					);
+				}
+			}
 
-		std::array<uint8_t, FullFifoEntrySize * 8> read_buffer;  // max 8 readings
-		const auto bytes_to_read = std::min(
-									   static_cast<size_t>(read_buffer.size()),
-									   static_cast<size_t>(fifo_bytes)
-								   )
-								 / FullFifoEntrySize * FullFifoEntrySize;
-		m_RegisterInterface
-			.readBytes(Regs::FifoData, bytes_to_read, read_buffer.data());
-		for (auto i = 0u; i < bytes_to_read; i += FullFifoEntrySize) {
-			FifoEntryAligned entry;
-			uint8_t tag = read_buffer[i] >> 3;
-			memcpy(
-				entry.raw,
-				&read_buffer[i + 0x1],
-				sizeof(FifoEntryAligned)
-			);  // skip fifo header
+			if (fifo_bytes == 0) {
+				break;
+			}
 
-			switch (tag) {
-				case 0x01:  // Gyro NC
-					callbacks.processGyroSample(entry.xyz, GyrTs);
-					break;
-				case 0x02:  // Accel NC
-					callbacks.processAccelSample(entry.xyz, AccTs);
-					break;
-				case 0x03:  // Temperature
-					callbacks.processTempSample(entry.xyz[0], TempTs);
-					break;
+			const auto bytes_to_read = std::min(
+										   static_cast<size_t>(read_buffer.size()),
+										   static_cast<size_t>(fifo_bytes)
+									   )
+									 / FullFifoEntrySize * FullFifoEntrySize;
+			m_RegisterInterface.readBytes(Regs::FifoData, bytes_to_read, read_buffer.data());
+
+			for (auto i = 0u; i < bytes_to_read; i += FullFifoEntrySize) {
+				FifoEntryAligned entry;
+				uint8_t tag = read_buffer[i] >> 3;
+				memcpy(
+					entry.raw,
+					&read_buffer[i + 0x1],
+					sizeof(FifoEntryAligned)
+				);  // skip fifo header
+
+				switch (tag) {
+					case 0x01:  // Gyro NC
+						callbacks.processGyroSample(entry.xyz, GyrTs);
+						break;
+					case 0x02:  // Accel NC
+						callbacks.processAccelSample(entry.xyz, AccTs);
+						break;
+					case 0x03:  // Temperature
+						callbacks.processTempSample(entry.xyz[0], TempTs);
+						break;
+				}
+			}
+
+			// If we read less than a full chunk, FIFO is likely drained.
+			if (bytes_to_read < read_buffer.size()) {
+				break;
 			}
 		}
 	}

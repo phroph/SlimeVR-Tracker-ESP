@@ -30,9 +30,14 @@
 #include "debugging/TimeTaken.h"
 #include "globals.h"
 #include "logging/Logger.h"
+#include "mag_calibration_manager.h"
 #include "ota.h"
 #include "serial/serialcommands.h"
 #include "status/TPSCounter.h"
+
+#if defined(ESP32)
+#include <esp_log.h>
+#endif
 
 Timer<> globalTimer;
 SlimeVR::Logging::Logger logger("SlimeVR");
@@ -44,6 +49,25 @@ SlimeVR::Network::Manager networkManager;
 SlimeVR::Network::Connection networkConnection;
 SlimeVR::WiFiNetwork wifiNetwork;
 SlimeVR::WifiProvisioning wifiProvisioning;
+
+constexpr uint32_t SERIAL_CONNECT_WAIT_MS = 4000;
+
+static void waitForSerialConnection() {
+#if defined(USBCON) || defined(ARDUINO_USB_CDC_ON_BOOT)
+	const unsigned long start = millis();
+	while (!Serial && (millis() - start) < SERIAL_CONNECT_WAIT_MS) {
+		delay(10);
+	}
+	if (!Serial) {
+		logger.warn(
+			"No USB CDC host detected after %lu ms, continuing anyway",
+			static_cast<unsigned long>(SERIAL_CONNECT_WAIT_MS)
+		);
+	} else {
+		delay(50);
+	}
+#endif
+}
 
 #if DEBUG_MEASURE_SENSOR_TIME_TAKEN
 SlimeVR::Debugging::TimeTakenMeasurer sensorMeasurer{"Sensors"};
@@ -61,10 +85,15 @@ TPSCounter tpsCounter;
 void setup() {
 	Serial.begin(serialBaudRate);
 
-	while(!Serial)
-	{
-		delay(10);
-	}
+	waitForSerialConnection();
+
+#if defined(ESP32)
+	// The ESP-IDF 5.x based Arduino core used by some ESP32-S3 boards can be
+	// very chatty (e.g. ChannelEngineSpi warnings about missing SPI hosts).
+	// Lower the global IDF log verbosity so our own logs stay readable.
+	esp_log_level_set("*", ESP_LOG_ERROR);
+#endif
+
 	delay(1000);
 	
 	Serial.println("=== SlimeVR Boot ===");
@@ -118,28 +147,26 @@ void setup() {
 	// Fixes I2C issues for certain IMUs. Previously this feature was enabled for
 	// selected IMUs, now it's enabled for all. If some IMU turned out to be broken by
 	// this, check needs to be re-added.
-	auto clearResult = I2CSCAN::clearBus(PIN_IMU_SDA, PIN_IMU_SCL);
-	if (clearResult != 0) {
-		logger.warn("Can't clear I2C bus, error %d", clearResult);
-	}
+	// Skip clearBus - it's causing pin validation issues on ESP32-S3
+	// auto clearResult = I2CSCAN::clearBus(PIN_IMU_SDA, PIN_IMU_SCL);
+	// if (clearResult != 0) {
+	// 	logger.warn("Can't clear I2C bus, error %d", clearResult);
+	// }
 
 	// join I2C bus
+	logger.info("Initializing I2C on SDA=%d, SCL=%d", PIN_IMU_SDA, PIN_IMU_SCL);
 
-#ifdef ESP32
-	// For some unknown reason the I2C seem to be open on ESP32-C3 by default. Let's
-	// just close it before opening it again. (The ESP32-C3 only has 1 I2C.)
+#if defined(ESP32)
+	// On ESP32-class boards, explicitly re-init the Wire bus with the desired pins
 	Wire.end();
-#endif
-
-	// using `static_cast` here seems to be better, because there are 2 similar function
-	// signatures
 	Wire.begin(static_cast<int>(PIN_IMU_SDA), static_cast<int>(PIN_IMU_SCL));
+	Wire.setTimeOut(150);
+#else
+	Wire.begin(static_cast<int>(PIN_IMU_SDA), static_cast<int>(PIN_IMU_SCL));
+#endif
 
 #ifdef ESP8266
 	Wire.setClockStretchLimit(150000L);  // Default stretch limit 150mS
-#endif
-#ifdef ESP32  // Counterpart on ESP32 to ClockStretchLimit
-	Wire.setTimeOut(150);
 #endif
 	Wire.setClock(I2C_SPEED);
 
@@ -151,6 +178,9 @@ void setup() {
 	networkManager.setup();
 	OTA::otaSetup(otaPassword);
 	battery.Setup();
+
+	// Initialize magnetometer sidecar communication (for Magneto integration)
+	SlimeVR::MagCalibration::g_magCalManager.setup();
 
 	statusManager.setStatus(SlimeVR::Status::LOADING, false);
 
@@ -166,7 +196,6 @@ void loop() {
 	SerialCommands::update();
 	OTA::otaUpdate();
 	networkManager.update();
-
 #if DEBUG_MEASURE_SENSOR_TIME_TAKEN
 	sensorMeasurer.before();
 #endif
@@ -177,6 +206,22 @@ void loop() {
 
 	battery.Loop();
 	ledManager.update();
+
+	// Update magnetometer sidecar communication (Magneto integration) on a
+	// best-effort, rate-limited basis *after* IMU/FIFO processing, so any
+	// WiFi/UDP stalls can't delay reading the sensor FIFO.
+#if ENABLE_MAG_CALIBRATION_MODE
+	{
+		static uint32_t lastMagUpdateMs = 0;
+		constexpr uint32_t MAG_UPDATE_INTERVAL_MS = 20;  // Max ~50 Hz
+		uint32_t nowMs = millis();
+		if (nowMs - lastMagUpdateMs >= MAG_UPDATE_INTERVAL_MS) {
+			lastMagUpdateMs = nowMs;
+			SlimeVR::MagCalibration::g_magCalManager.update();
+		}
+	}
+#endif
+
 	I2CSCAN::update();
 #ifdef TARGET_LOOPTIME_MICROS
 	long elapsed = (micros() - loopTime);

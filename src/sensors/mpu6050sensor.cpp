@@ -99,6 +99,8 @@ void MPU6050Sensor::motionSetup() {
 #else  // IMU_MPU6050_RUNTIME_CALIBRATION
 
 		m_Logger.debug("Performing startup calibration of accel and gyro...");
+		statusManager.setImuCalibrating(true);
+		ledManager.update();
 		// Do a quick and dirty calibration. As the imu warms up the offsets will change
 		// a bit, but this will be good-enough
 		delay(1000);  // A small sleep to give the users a chance to stop it from moving
@@ -106,9 +108,9 @@ void MPU6050Sensor::motionSetup() {
 		imu.CalibrateGyro(6);
 		imu.CalibrateAccel(6);
 		imu.PrintActiveOffsets();
+		statusManager.setImuCalibrating(false);
+		ledManager.update();
 #endif  // IMU_MPU6050_RUNTIME_CALIBRATION
-
-		ledManager.pattern(50, 50, 5, CRGB::HTMLColorCode::SaddleBrown);
 
 		// turn on the DMP, now that it's ready
 		m_Logger.debug("Enabling DMP...");
@@ -192,7 +194,8 @@ void MPU6050Sensor::motionLoop() {
 }
 
 void MPU6050Sensor::startCalibration(int calibrationType) {
-	ledManager.on(CRGB::HTMLColorCode::SaddleBrown);
+	statusManager.setImuCalibrating(true);
+	ledManager.update();
 
 #ifdef IMU_MPU6050_RUNTIME_CALIBRATION
 	m_Logger.info(
@@ -234,5 +237,7 @@ void MPU6050Sensor::startCalibration(int calibrationType) {
 	m_Logger.info("Calibration finished");
 #endif  // !IMU_MPU6050_RUNTIME_CALIBRATION
 
-	ledManager.off();
+	statusManager.pushLedEvent(SlimeVR::Status::LEDStatus::CALIBRATION_SAVED, 200);
+	statusManager.setImuCalibrating(false);
+	ledManager.update();
 }
